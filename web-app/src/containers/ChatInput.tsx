@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useThreads } from '@/hooks/useThreads'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from '@tanstack/react-router'
+import { route } from '@/constants/routes'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -69,6 +71,9 @@ import {
   useChatAttachments,
 } from '@/hooks/useChatAttachments'
 
+import { CommandRegistry, Command } from '@/lib/commands/registry'
+import { SlashCommandMenu } from '@/components/SlashCommandMenu'
+
 import {
   Attachment,
   createImageAttachment,
@@ -106,6 +111,7 @@ const ChatInput = ({
   const setPrompt = usePrompt((state) => state.setPrompt)
   const currentThreadId = useThreads((state) => state.currentThreadId)
   const { t } = useTranslation()
+  const router = useRouter()
   const spellCheckChatInput = useGeneralSetting(
     (state) => state.spellCheckChatInput
   )
@@ -139,6 +145,10 @@ const ChatInput = ({
       activeModels.some((e) => e === selectedModel?.id),
     [activeModels, selectedModel?.id]
   )
+
+  const [slashCommands, setSlashCommands] = useState<Command[]>([])
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false)
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0)
 
   // Jan Browser Extension hook
   const {
@@ -266,6 +276,58 @@ const ChatInput = ({
   const extensionManager = ExtensionManager.getInstance()
   const mcpExtension = extensionManager.get<MCPExtension>(ExtensionTypeEnum.MCP)
   const MCPToolComponent = mcpExtension?.getToolComponent?.()
+
+  const executeRAGSearch = useCallback(async (query: string) => {
+    if (!currentThreadId) return
+    try {
+      const result = await serviceHub.rag().callTool({
+        toolName: 'retrieve',
+        arguments: { query, thread_id: currentThreadId }
+      })
+      
+      if (!result.error && result.content) {
+         const content = result.content.map(c => c.text).join('\n')
+         if (content) {
+           const currentPrompt = usePrompt.getState().prompt
+           setPrompt(`${currentPrompt}\n\nContext:\n${content}\n\n`)
+           toast.success('Context added to prompt')
+         } else {
+           toast.info('No results found')
+         }
+      }
+    } catch (e) {
+      console.error('Search failed', e)
+      toast.error('Search failed')
+    }
+  }, [serviceHub, currentThreadId, setPrompt])
+
+  const openAgentSettings = useCallback(() => {
+    router.navigate({ to: route.settings.assistant })
+  }, [router])
+
+  const handleSlashCommand = (command: Command) => {
+    const context = {
+      prompt,
+      setPrompt,
+      openFilePicker: handleAttachDocsIngest,
+      executeRAGSearch,
+      openAgentSettings
+    }
+    
+    command.execute(context)
+    setSlashMenuOpen(false)
+    setPrompt('')
+
+    // If command requires args (like /search), selection should complete the text.
+    // If command is action (like /agent), execute immediately.    
+    if (command.trigger === '/search') {
+      setPrompt('/search ')
+      if (textareaRef.current) textareaRef.current.focus()
+    } else {
+      command.execute(context)
+      setPrompt('')
+    }
+  }
 
   const handleSendMessage = async (prompt: string) => {
     if (!selectedModel) {
@@ -1257,17 +1319,70 @@ const ChatInput = ({
               value={prompt}
               data-testid={'chat-input'}
               onChange={(e) => {
-                setPrompt(e.target.value)
+                const value = e.target.value
+                setPrompt(value)
+                
+                // Slash commands
+                if (value.startsWith('/')) {
+                  const matches = CommandRegistry.getInstance().match(value)
+                  setSlashCommands(matches)
+                  setSlashMenuOpen(matches.length > 0)
+                  setSelectedSlashIndex(0)
+                } else {
+                  setSlashMenuOpen(false)
+                }
+
+                // File picker trigger - simple check for now
+                if (value.slice(-1) === '@') {
+                   handleAttachDocsIngest()
+                }
+
                 // Count the number of newlines to estimate rows
-                const newRows = (e.target.value.match(/\n/g) || []).length + 1
+                const newRows = (value.match(/\n/g) || []).length + 1
                 setRows(Math.min(newRows, maxRows))
               }}
               onKeyDown={(e) => {
+                // Slash menu navigation
+                if (slashMenuOpen) {
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setSelectedSlashIndex((prev) => Math.max(0, prev - 1))
+                    return
+                  }
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    setSelectedSlashIndex((prev) => Math.min(slashCommands.length - 1, prev + 1))
+                    return
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleSlashCommand(slashCommands[selectedSlashIndex])
+                    return
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setSlashMenuOpen(false)
+                    return
+                  }
+                }
+
                 // e.keyCode 229 is for IME input with Safari
                 const isComposing =
                   e.nativeEvent.isComposing || e.keyCode === 229
                 if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
                   e.preventDefault()
+                  
+                  // Check if it's a slash command execution (if user typed full command without menu)
+                  if (prompt.startsWith('/')) {
+                    const args = prompt.split(' ')
+                    const trigger = args[0]
+                    const command = CommandRegistry.getInstance().getCommands().find(c => c.trigger === trigger)
+                    if (command) {
+                      handleSlashCommand(command)
+                      return
+                    }
+                  }
+
                   // Submit prompt when the following conditions are met:
                   // - Enter is pressed without Shift
                   // - The streaming content has finished
@@ -1624,6 +1739,15 @@ const ChatInput = ({
         onOpenChange={setExtensionDialogOpen}
         state={extensionDialogState}
         onCancel={handleExtensionDialogCancel}
+      />
+      
+      {/* Slash Command Menu */}
+      <SlashCommandMenu
+        isOpen={slashMenuOpen}
+        commands={slashCommands}
+        selectedIndex={selectedSlashIndex}
+        onSelect={handleSlashCommand}
+        onClose={() => setSlashMenuOpen(false)}
       />
     </div>
   )
