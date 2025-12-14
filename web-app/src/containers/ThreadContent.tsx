@@ -25,9 +25,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { formatDate } from '@/utils/formatDate'
-import { AvatarEmoji } from '@/containers/AvatarEmoji'
-
 import TokenSpeedIndicator from '@/containers/TokenSpeedIndicator'
 
 import { useTranslation } from '@/i18n/react-i18next-compat'
@@ -252,10 +249,6 @@ export const ThreadContent = memo(
       Array.isArray(item.metadata.tool_calls) &&
       item.metadata.tool_calls.length
 
-    const assistant = item.metadata?.assistant as
-      | { avatar?: React.ReactNode; name?: React.ReactNode }
-      | undefined
-
     return (
       <Fragment>
         {item.role === 'user' && (
@@ -413,31 +406,6 @@ export const ThreadContent = memo(
         )}
         {item.content?.[0]?.text && item.role !== 'user' && (
           <>
-            {item.showAssistant && (
-              <div className="flex items-center gap-2 mb-3 text-main-view-fg/60">
-                {assistant?.avatar && (
-                  <div className="flex items-center gap-2 size-8 rounded-md justify-center border border-main-view-fg/10 bg-main-view-fg/5 p-1">
-                    <AvatarEmoji
-                      avatar={assistant?.avatar}
-                      imageClassName="w-6 h-6 object-contain"
-                      textClassName="text-base"
-                    />
-                  </div>
-                )}
-
-                <div className="flex flex-col">
-                  <span className="text-main-view-fg font-medium">
-                    {assistant?.name || 'Jan'}
-                  </span>
-                  {item?.created_at && item?.created_at !== 0 && (
-                    <span className="text-xs mt-0.5">
-                      {formatDate(item?.created_at)}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
             {reasoningSegment && (
               <ThinkingBlock
                 id={

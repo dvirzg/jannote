@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct FileMetadata {
+ #[allow(dead_code)]
+ pub struct FileMetadata {
     pub name: Option<String>,
     pub path: String,
     #[serde(rename = "type")]
