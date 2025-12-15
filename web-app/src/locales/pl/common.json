@@ -232,7 +232,7 @@
     }
   },
   "projects": {
-    "title": "Projekty",
+    "title": "Foldery czatów",
     "addProject": "Dodaj Projekt",
     "addToProject": "Dodaj do projektu",
     "removeFromProject": "Usuń z projektu",

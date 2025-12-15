@@ -215,7 +215,7 @@
     "description": "Định cấu hình cài đặt mô hình để tối ưu hóa hiệu suất và hành vi."
   },
   "projects": {
-    "title": "Dự án",
+    "title": "Thư mục trò chuyện",
     "addProject": "Thêm dự án",
     "createNewProject": "Tạo dự án mới",
     "editProject": "Chỉnh sửa dự án",

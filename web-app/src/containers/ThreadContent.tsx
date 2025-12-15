@@ -464,12 +464,6 @@ export const ThreadContent = memo(
                       item.isLastMessage && isStreamingThisThread && 'hidden'
                     )}
                   >
-                    <EditMessageDialog
-                      message={item.content?.[0]?.text.value || ''}
-                      onSave={(message) =>
-                        item.updateMessage && item.updateMessage(item, message)
-                      }
-                    />
                     <CopyButton text={item.content?.[0]?.text.value || ''} />
                     <DeleteMessageDialog onDelete={removeMessage} />
                     <MessageMetadataDialog metadata={item.metadata} />

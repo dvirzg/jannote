@@ -238,7 +238,7 @@
     }
   },
   "projects": {
-    "title": "Projekte",
+    "title": "Chat-Ordner",
     "addProject": "Projekt hinzufügen",
     "addToProject": "Zum Projekt hinzufügen",
     "removeFromProject": "Vom Projekt entfernen",

@@ -215,7 +215,7 @@
     "description": "配置模型设置以优化性能和行为。"
   },
   "projects": {
-    "title": "项目",
+    "title": "聊天文件夹",
     "addProject": "添加项目",
     "editProject": "编辑项目",
     "deleteProject": "删除项目",

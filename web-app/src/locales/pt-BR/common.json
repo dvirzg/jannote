@@ -238,7 +238,7 @@
     }
   },
   "projects": {
-    "title": "Projetos",
+    "title": "Pastas de Chat",
     "addProject": "Adicionar Projeto",
     "addToProject": "Adicionar ao projeto",
     "removeFromProject": "Remover do projeto",

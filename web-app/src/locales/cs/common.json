@@ -240,7 +240,7 @@
     }
   },
   "projects": {
-    "title": "Projekty",
+    "title": "Složky chatů",
     "addProject": "Přidat projekt",
     "addToProject": "Přidat do projektu",
     "removeFromProject": "Odebrat z projektu",

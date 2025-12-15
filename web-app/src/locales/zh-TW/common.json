@@ -215,7 +215,7 @@
     "description": "設定模型設定以最佳化效能和行為。"
   },
   "projects": {
-    "title": "專案",
+    "title": "聊天資料夾",
     "addProject": "新增專案",
     "editProject": "編輯專案",
     "deleteProject": "刪除專案",
