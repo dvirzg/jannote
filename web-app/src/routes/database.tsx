@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import {
   IconDatabase,
@@ -90,87 +90,129 @@ const GridItem = ({
   onFolderClick?: (entry: DatabaseEntry) => void
 }) => {
   const [isHovered, setIsHovered] = useState(false)
+  const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
+  const textRef = React.useRef<HTMLDivElement>(null)
+  const containerRef = React.useRef<HTMLDivElement>(null)
   const isFolder = entry.type === 'folder'
   const Icon = getFileIcon(entry.name, isFolder)
   const mention = `@db:${entry.id}`
 
-  const handleClick = () => {
-    if (isFolder && onFolderClick) {
-      onFolderClick(entry)
-    }
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsContextMenuOpen(true)
   }
 
-  return (
-    <div
-      className={cn(
-        'group relative flex flex-col items-center gap-2 rounded-lg border border-main-view-fg/10 bg-main-view/30 p-4 transition-all',
-        isFolder ? 'cursor-pointer' : 'cursor-default',
-        'hover:border-main-view-fg/20 hover:bg-main-view/50 hover:shadow-sm'
-      )}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onClick={handleClick}
-    >
-      <div className="relative flex flex-col items-center w-full">
-        <div className="mb-2 flex items-center justify-center w-16 h-16 rounded-lg bg-main-view-fg/5 group-hover:bg-main-view-fg/10 transition-colors">
-          <Icon size={32} className="text-main-view-fg/70" />
-        </div>
-        <div className="w-full text-center">
-          <div className="text-sm font-medium truncate px-1" title={entry.name}>
-            {entry.name}
-          </div>
-          <div className="text-xs text-main-view-fg/60 mt-1">
-            {isFolder ? (
-              <span>{entry.children?.length || 0} items</span>
-            ) : (
-              <>
-                {formatFileSize(entry.size)}
-                {entry.size && ' · '}
-                {entry.injectionMode === 'inline' ? 'Raw' : 'Embed'}
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+  useEffect(() => {
+    if (isHovered && entry.name.length > 15 && textRef.current) {
+      // Calculate scroll distance: half of the total width (text + gap + text)
+      // This creates seamless infinite loop - when it scrolls half way, it loops back
+      const totalWidth = textRef.current.scrollWidth
+      const scrollDistance = totalWidth / 2
+      textRef.current.style.setProperty('--scroll-distance', `-${scrollDistance}px`)
+    }
+  }, [isHovered, entry.name.length])
 
-      {isHovered && (
-        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 bg-main-view/90 hover:bg-main-view-fg/10"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <IconCopy size={14} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation()
-                  navigator.clipboard.writeText(mention)
-                }}
-              >
-                <IconCopy size={14} className="mr-2" />
-                Copy mention
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onDelete(entry.id)
-                }}
-                className="text-destructive"
-              >
-                <IconTrash size={14} className="mr-2" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+  return (
+    <DropdownMenu open={isContextMenuOpen} onOpenChange={setIsContextMenuOpen} modal={false}>
+      <DropdownMenuTrigger asChild>
+        <div
+          className={cn(
+            'group relative flex flex-col items-center gap-2 rounded-lg border border-main-view-fg/10 bg-main-view/30 p-4 transition-all',
+            isFolder ? 'cursor-pointer' : 'cursor-default',
+            'hover:border-main-view-fg/20 hover:bg-main-view/50 hover:shadow-sm'
+          )}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          onClick={(e) => {
+            // Prevent dropdown from opening on left click
+            if (e.button === 0) {
+              e.preventDefault()
+              e.stopPropagation()
+              if (isFolder && onFolderClick) {
+                onFolderClick(entry)
+              }
+            }
+          }}
+          onContextMenu={handleContextMenu}
+          onPointerDown={(e) => {
+            // Only allow right-click to trigger the dropdown
+            if (e.button === 0) {
+              e.preventDefault()
+            }
+          }}
+        >
+        <div className="relative flex flex-col items-center w-full">
+          <div className="mb-2 flex items-center justify-center w-16 h-16 rounded-lg bg-main-view-fg/5 group-hover:bg-main-view-fg/10 transition-colors">
+            <Icon size={32} className="text-main-view-fg/70" />
+          </div>
+          <div className="w-full text-center overflow-hidden">
+            <div
+              className={cn(
+                'text-sm font-medium px-1 relative w-full',
+                isHovered && entry.name.length > 15 ? 'overflow-hidden' : 'truncate'
+              )}
+              title={entry.name}
+            >
+              {isHovered && entry.name.length > 15 ? (
+                <div ref={containerRef} className="relative overflow-hidden w-full inline-block">
+                  <div
+                    ref={textRef}
+                    className="whitespace-nowrap inline-block"
+                    style={{
+                      animation: 'database-scroll-text 3s linear infinite',
+                      willChange: 'transform',
+                    }}
+                  >
+                    {entry.name}
+                    <span className="inline-block" style={{ width: '40px' }} />
+                    {entry.name}
+                  </div>
+                </div>
+              ) : (
+                <span>{entry.name}</span>
+              )}
+            </div>
+            <div className="text-xs text-main-view-fg/60 mt-1">
+              {isFolder ? (
+                <span>{entry.children?.length || 0} items</span>
+              ) : (
+                <>
+                  {formatFileSize(entry.size)}
+                  {entry.size && ' · '}
+                  {entry.injectionMode === 'inline' ? 'Raw' : 'Embed'}
+                </>
+              )}
+            </div>
+          </div>
         </div>
-      )}
-    </div>
+        </div>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation()
+            navigator.clipboard.writeText(mention)
+            setIsContextMenuOpen(false)
+          }}
+        >
+          <IconCopy size={14} className="mr-2" />
+          Copy mention
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete(entry.id)
+            setIsContextMenuOpen(false)
+          }}
+          className="text-destructive"
+        >
+          <IconTrash size={14} className="mr-2" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -182,6 +224,32 @@ function DatabasePage() {
   const [rootPath, setRootPath] = useState<string>('')
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
   const [folderStack, setFolderStack] = useState<Array<{ id: string; name: string }>>([])
+
+  useEffect(() => {
+    // Add CSS for scrolling animation
+    const styleId = 'database-scroll-animation'
+    if (document.getElementById(styleId)) return
+
+    const style = document.createElement('style')
+    style.id = styleId
+    style.textContent = `
+      @keyframes database-scroll-text {
+        from {
+          transform: translateX(0);
+        }
+        to {
+          transform: translateX(var(--scroll-distance, -200px));
+        }
+      }
+    `
+    document.head.appendChild(style)
+    return () => {
+      const existing = document.getElementById(styleId)
+      if (existing) {
+        document.head.removeChild(existing)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     refresh()
