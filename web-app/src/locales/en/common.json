@@ -77,7 +77,7 @@
     "embeddings": "Embeddings",
     "inline": "Raw inject",
     "addFiles": "Add Files",
-    "addFolder": "Add Folder",
+    "addFolder": "New Folder",
     "loading": "Loading database...",
     "empty": "No files yet. Upload files or folders to reuse them in chat with @db:<id>."
   },
@@ -86,6 +86,11 @@
     "description": "How should this file be processed when referenced in chat?",
     "embeddings": "Embeddings",
     "inline": "Raw inject"
+  },
+  "createFolder": {
+    "title": "Create New Folder",
+    "description": "Enter a name for the new folder",
+    "placeholder": "Folder name"
   },
   "thinking": "Thinking...",
   "thought": "Thought",

@@ -92,24 +92,31 @@ export class TauriDatabaseService
     }
   }
 
-  private async uniquePath(root: string, desiredName: string): Promise<{
+  private async uniquePath(root: string, desiredRelativePath: string): Promise<{
     path: string
     relativePath: string
   }> {
-    const splitIndex = desiredName.lastIndexOf('.')
-    const base =
-      splitIndex > 0 ? desiredName.substring(0, splitIndex) : desiredName
-    const ext = splitIndex > 0 ? desiredName.substring(splitIndex) : ''
+    // Handle paths that might already include parent folder
+    const segments = desiredRelativePath.split(/[\\/]/).filter(Boolean)
+    const fileName = segments[segments.length - 1]
+    const parentPath = segments.length > 1 ? segments.slice(0, -1).join('/') : ''
+    
+    const splitIndex = fileName.lastIndexOf('.')
+    const base = splitIndex > 0 ? fileName.substring(0, splitIndex) : fileName
+    const ext = splitIndex > 0 ? fileName.substring(splitIndex) : ''
 
     let attempt = 0
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const suffix = attempt === 0 ? '' : ` (${attempt})`
-      const candidate = `${base}${suffix}${ext}`
-      const candidatePath = await join(root, candidate)
+      const candidateName = `${base}${suffix}${ext}`
+      const candidateRelativePath = parentPath
+        ? `${parentPath}/${candidateName}`
+        : candidateName
+      const candidatePath = await join(root, candidateRelativePath)
       const exists = await this.pathExists(candidatePath)
       if (!exists) {
-        return { path: candidatePath, relativePath: candidate }
+        return { path: candidatePath, relativePath: candidateRelativePath }
       }
       attempt += 1
     }
@@ -214,7 +221,8 @@ export class TauriDatabaseService
 
   async addPaths(
     paths: string[],
-    ingestionMode: DatabaseIngestionMode
+    ingestionMode: DatabaseIngestionMode,
+    parentFolderId?: string
   ): Promise<DatabaseEntry[]> {
     if (!paths?.length) return this.list()
     if (!ingestionMode || (ingestionMode !== 'inline' && ingestionMode !== 'embeddings')) {
@@ -224,12 +232,22 @@ export class TauriDatabaseService
     const index = await this.readIndex()
     const newEntries: RawIndexEntry[] = []
 
+    // Determine parent folder path
+    let parentRelativePath = ''
+    if (parentFolderId) {
+      const parentEntry = index.find((e) => e.id === parentFolderId)
+      if (!parentEntry || parentEntry.type !== 'folder') {
+        throw new Error('Parent folder not found')
+      }
+      parentRelativePath = parentEntry.relativePath
+    }
+
     for (const p of paths) {
       const sourceName = p.split(/[\\/]/).pop() || p
-      const { relativePath } = await this.uniquePath(
-        root,
-        sourceName
-      )
+      const baseRelativePath = parentRelativePath
+        ? `${parentRelativePath}/${sourceName}`
+        : sourceName
+      const { relativePath } = await this.uniquePath(root, baseRelativePath)
       try {
         const copied = await this.copyPath(p, root, relativePath, ingestionMode)
         newEntries.push(...copied)
@@ -247,19 +265,33 @@ export class TauriDatabaseService
   }
 
   async addPathsWithModes(
-    pathsWithModes: Array<{ path: string; mode: DatabaseIngestionMode }>
+    pathsWithModes: Array<{ path: string; mode: DatabaseIngestionMode }>,
+    parentFolderId?: string
   ): Promise<DatabaseEntry[]> {
     if (!pathsWithModes?.length) return this.list()
     const root = await this.ensureRoot()
     const index = await this.readIndex()
     const newEntries: RawIndexEntry[] = []
 
+    // Determine parent folder path
+    let parentRelativePath = ''
+    if (parentFolderId) {
+      const parentEntry = index.find((e) => e.id === parentFolderId)
+      if (!parentEntry || parentEntry.type !== 'folder') {
+        throw new Error('Parent folder not found')
+      }
+      parentRelativePath = parentEntry.relativePath
+    }
+
     for (const { path: p, mode } of pathsWithModes) {
       if (!mode || (mode !== 'inline' && mode !== 'embeddings')) {
         throw new Error('Invalid ingestion mode provided')
       }
       const sourceName = p.split(/[\\/]/).pop() || p
-      const { relativePath } = await this.uniquePath(root, sourceName)
+      const baseRelativePath = parentRelativePath
+        ? `${parentRelativePath}/${sourceName}`
+        : sourceName
+      const { relativePath } = await this.uniquePath(root, baseRelativePath)
       try {
         const copied = await this.copyPath(p, root, relativePath, mode)
         newEntries.push(...copied)
@@ -271,6 +303,55 @@ export class TauriDatabaseService
     }
 
     const merged = [...index, ...newEntries]
+    await this.writeIndex(merged)
+    return this.buildTree(merged)
+  }
+
+  async createFolder(folderName: string, parentFolderId?: string): Promise<DatabaseEntry[]> {
+    if (!folderName?.trim()) {
+      throw new Error('Folder name is required')
+    }
+    const root = await this.ensureRoot()
+    const index = await this.readIndex()
+
+    // Determine parent path
+    let parentRelativePath = ''
+    if (parentFolderId) {
+      const parentEntry = index.find((e) => e.id === parentFolderId)
+      if (!parentEntry || parentEntry.type !== 'folder') {
+        throw new Error('Parent folder not found')
+      }
+      parentRelativePath = parentEntry.relativePath
+    }
+
+    // Generate unique folder name
+    const baseName = folderName.trim()
+    let folderRelativePath = parentRelativePath
+      ? `${parentRelativePath}/${baseName}`
+      : baseName
+    let attempt = 0
+    while (index.some((e) => e.relativePath === folderRelativePath)) {
+      attempt += 1
+      const suffix = ` (${attempt})`
+      folderRelativePath = parentRelativePath
+        ? `${parentRelativePath}/${baseName}${suffix}`
+        : `${baseName}${suffix}`
+    }
+
+    const folderPath = await join(root, folderRelativePath)
+    await fs.mkdir(folderPath)
+
+    const folderEntry: RawIndexEntry = {
+      id: ulid(),
+      name: folderRelativePath.split(/[\\/]/).pop() || baseName,
+      path: folderPath,
+      relativePath: folderRelativePath,
+      type: 'folder',
+      size: 0,
+      injectionMode: 'embeddings', // Default mode for empty folders
+    }
+
+    const merged = [...index, folderEntry]
     await this.writeIndex(merged)
     return this.buildTree(merged)
   }

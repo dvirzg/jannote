@@ -11,12 +11,17 @@ export class DefaultDatabaseService implements DatabaseService {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async addPaths(_paths: string[], _ingestionMode: DatabaseIngestionMode): Promise<DatabaseEntry[]> {
+  async addPaths(_paths: string[], _ingestionMode: DatabaseIngestionMode, _parentFolderId?: string): Promise<DatabaseEntry[]> {
     throw new Error('Database service not available on this platform')
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async addPathsWithModes(_pathsWithModes: Array<{ path: string; mode: DatabaseIngestionMode }>): Promise<DatabaseEntry[]> {
+  async addPathsWithModes(_pathsWithModes: Array<{ path: string; mode: DatabaseIngestionMode }>, _parentFolderId?: string): Promise<DatabaseEntry[]> {
+    throw new Error('Database service not available on this platform')
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async createFolder(_folderName: string, _parentFolderId?: string): Promise<DatabaseEntry[]> {
     throw new Error('Database service not available on this platform')
   }
 
