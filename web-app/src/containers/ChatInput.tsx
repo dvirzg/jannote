@@ -133,6 +133,10 @@ const ChatInput = ({
   const [mentionStart, setMentionStart] = useState<number | null>(null)
   const [mentionQuery, setMentionQuery] = useState('')
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
+  const [mentionMap, setMentionMap] = useState<Record<
+    string,
+    { id: string; displayName: string; path?: string }
+  >>({})
   const [dropdownToolsAvailable, setDropdownToolsAvailable] = useState(false)
   const [tooltipToolsAvailable, setTooltipToolsAvailable] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -245,12 +249,14 @@ const ChatInput = ({
   const mentionVisible = mentionStart !== null
 
   const findTokenRangeAt = useCallback((text: string, pos: number) => {
-    const regex = /@db:[A-Za-z0-9_-]+/g
+    const regex = /@(db:[A-Za-z0-9_-]+|ref:[A-Za-z0-9_-]+)/g
     let match: RegExpExecArray | null
     while ((match = regex.exec(text)) !== null) {
       const start = match.index
       const end = start + match[0].length
-      if (pos >= start && pos <= end) {
+      // Treat `end` as exclusive. If caret is exactly at `end`,
+      // it's already "after" the token and should not be considered inside it.
+      if (pos >= start && pos < end) {
         return { start, end, value: match[0] }
       }
     }
@@ -258,14 +264,22 @@ const ChatInput = ({
   }, [])
 
   const insertMentionToken = useCallback(
-    (id: string, label: string) => {
+    (id: string, label: string, path?: string) => {
       const textarea = textareaRef.current
       if (!textarea) return
       const value = textarea.value
       const selectionStart = textarea.selectionStart ?? value.length
       const selectionEnd = textarea.selectionEnd ?? value.length
       const start = mentionStart ?? selectionStart
-      const token = `@db:${id}`
+
+      const key = `ref_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+      const token = `@ref:${key}`
+
+      setMentionMap((prev) => ({
+        ...prev,
+        [key]: { id, displayName: label, path },
+      }))
+
       const nextValue = `${value.slice(0, start)}${token} ${value.slice(selectionEnd)}`
       setPrompt(nextValue)
       requestAnimationFrame(() => {
@@ -303,6 +317,34 @@ const ChatInput = ({
       }
     },
     [findTokenRangeAt, setPrompt]
+  )
+
+  const snapCaretOutOfToken = useCallback(
+    (bias: 'left' | 'right' | 'nearest') => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      const value = textarea.value
+      const caret = textarea.selectionStart ?? value.length
+      if (textarea.selectionStart !== textarea.selectionEnd) return
+
+      // Check both caret and caret-1 to handle boundary cases
+      const token =
+        findTokenRangeAt(value, caret) ?? findTokenRangeAt(value, caret - 1)
+      if (!token) return
+
+      const mid = token.start + Math.floor((token.end - token.start) / 2)
+      const next =
+        bias === 'left'
+          ? token.start
+          : bias === 'right'
+            ? token.end
+            : caret <= mid
+              ? token.start
+              : token.end
+
+      textarea.setSelectionRange(next, next)
+    },
+    [findTokenRangeAt]
   )
 
   const ingestingDocs = attachments.some(
@@ -397,11 +439,16 @@ const ChatInput = ({
       setMessage('Please select a model to start chatting.')
       return
     }
+    const expandedPrompt = prompt.replace(/@ref:([A-Za-z0-9_-]+)/g, (full, key) => {
+      const meta = mentionMap[key]
+      return meta ? `@db:${meta.id}` : full
+    })
+
     const { attachments: dbAttachments } = await (async () => {
       const regex = /@db:([A-Za-z0-9_-]+)/g
       const ids = new Set<string>()
       let match: RegExpExecArray | null
-      while ((match = regex.exec(prompt)) !== null) {
+      while ((match = regex.exec(expandedPrompt)) !== null) {
         if (match[1]) ids.add(match[1])
       }
       if (ids.size === 0) return { attachments: [] as Attachment[] }
@@ -430,10 +477,10 @@ const ChatInput = ({
       return merged
     })()
 
-    if (!prompt.trim() && combinedAttachments.length === 0) {
+    if (!expandedPrompt.trim() && combinedAttachments.length === 0) {
       return
     }
-    const outboundMessage = prompt.trim()
+    const outboundMessage = expandedPrompt.trim()
 
     if (ingestingAny) {
       toast.info('Please wait for attachments to finish processing')
@@ -1455,27 +1502,45 @@ const ChatInput = ({
                 ) : (
                   (() => {
                     const nodes: (string | JSX.Element)[] = []
-                    const regex = /@db:([A-Za-z0-9_-]+)/g
+                    const regex = /@(db:[A-Za-z0-9_-]+|ref:[A-Za-z0-9_-]+)/g
                     let lastIndex = 0
                     let match: RegExpExecArray | null
                     while ((match = regex.exec(prompt)) !== null) {
                       if (match.index > lastIndex) {
                         nodes.push(prompt.slice(lastIndex, match.index))
                       }
-                      const id = match[1]
-                      const meta = id ? dbIndex.get(id) : undefined
-                      const label = meta?.displayName || meta?.name || match[0]
+                      const full = match[1]
+                      const isRef = full.startsWith('ref:')
+                      const refKey = isRef ? full.replace(/^ref:/, '') : null
+                      const id = isRef ? mentionMap[refKey ?? '']?.id : full.replace(/^db:/, '')
+
+                      const metaRef = refKey ? mentionMap[refKey] : undefined
+                      const metaDb = id ? dbIndex.get(id) : undefined
+                      const label = metaRef?.displayName || metaDb?.displayName || metaDb?.name || match[0]
                       const path =
-                        meta?.path && meta.path !== meta.name ? meta.path : undefined
+                        metaRef?.path && metaRef.path !== metaRef.displayName
+                          ? metaRef.path
+                          : metaDb?.path && metaDb.path !== (metaDb.displayName || metaDb.name)
+                          ? metaDb.path
+                          : undefined
                       nodes.push(
                         <span
                           key={`${match[0]}-${match.index}`}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-main-view-fg/10 border border-main-view-fg/20 text-xs text-main-view-fg"
+                          className="relative inline-flex align-middle"
                         >
-                          {label}
-                          {path ? (
-                            <span className="text-main-view-fg/70 text-[10px]">/ {path}</span>
-                          ) : null}
+                          {/* Invisible width anchor based on actual token text so caret aligns to real string */}
+                          <span className="invisible inline-flex items-center px-2 py-0.5 rounded-full border text-xs whitespace-pre">
+                            {match[0]}
+                          </span>
+                          {/* Visible chip constrained to the anchor width with ellipsis */}
+                          <span className="absolute inset-0 inline-flex items-center px-2 py-0.5 rounded-full bg-main-view-fg/10 border border-main-view-fg/20 text-xs text-main-view-fg leading-none overflow-hidden whitespace-nowrap">
+                            <span className="truncate">
+                              {label}
+                              {path ? (
+                                <span className="text-main-view-fg/70 text-[10px]"> / {path}</span>
+                              ) : null}
+                            </span>
+                          </span>
                         </span>
                       )
                       lastIndex = match.index + match[0].length
@@ -1535,8 +1600,44 @@ const ChatInput = ({
                     setMentionStart(null)
                     setMentionQuery('')
                   }
+
+                  // If user clicked inside a mention token, snap to edge
+                  requestAnimationFrame(() => {
+                    snapCaretOutOfToken('nearest')
+                  })
+                }}
+                onSelect={() => {
+                  // Prevent caret from sitting "inside" a token
+                  snapCaretOutOfToken('nearest')
                 }}
                 onKeyDown={(e) => {
+                  // Keep mentions atomic: jumping over tokens with arrows
+                  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                    const textarea = textareaRef.current
+                    if (textarea && textarea.selectionStart === textarea.selectionEnd) {
+                      const value = textarea.value
+                      const caret = textarea.selectionStart ?? value.length
+                      const checkPos = e.key === 'ArrowLeft' ? caret - 1 : caret
+                      const token = findTokenRangeAt(value, checkPos)
+                      if (token) {
+                        e.preventDefault()
+                        const next = e.key === 'ArrowLeft' ? token.start : token.end
+                        textarea.setSelectionRange(next, next)
+                        return
+                      }
+                    }
+                  }
+
+                  // If caret ever ends up inside token, typing should happen after it
+                  if (
+                    e.key.length === 1 &&
+                    !e.metaKey &&
+                    !e.ctrlKey &&
+                    !e.altKey
+                  ) {
+                    snapCaretOutOfToken('right')
+                  }
+
                   // Mention navigation
                   if (mentionStart !== null && mentionSuggestions.length > 0) {
                     if (e.key === 'ArrowDown') {
@@ -1557,7 +1658,11 @@ const ChatInput = ({
                       e.preventDefault()
                       const choice = mentionSuggestions[selectedMentionIndex]
                       if (choice) {
-                        insertMentionToken(choice.id, choice.displayName || choice.name)
+                        insertMentionToken(
+                          choice.id,
+                          choice.displayName || choice.name,
+                          choice.path
+                        )
                       }
                       return
                     }
@@ -1580,7 +1685,11 @@ const ChatInput = ({
                     if (mentionStart !== null && mentionSuggestions.length > 0) {
                       const choice = mentionSuggestions[selectedMentionIndex]
                       if (choice) {
-                        insertMentionToken(choice.id, choice.displayName || choice.name)
+                        insertMentionToken(
+                          choice.id,
+                          choice.displayName || choice.name,
+                          choice.path
+                        )
                       }
                       return
                     }
