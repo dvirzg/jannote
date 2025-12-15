@@ -19,20 +19,11 @@ export class TauriWindowService extends DefaultWindowService {
         try {
           const themeData = JSON.parse(storedTheme)
           const activeTheme = themeData?.state?.activeTheme
-          const isDark = themeData?.state?.isDark
 
           // Set theme based on stored preference
-          if (activeTheme === 'auto') {
-            theme = undefined // Let OS decide
-          } else if (
-            activeTheme === 'dark' ||
-            (activeTheme === 'auto' && isDark)
-          ) {
+          if (activeTheme === 'dark') {
             theme = 'dark'
-          } else if (
-            activeTheme === 'light' ||
-            (activeTheme === 'auto' && !isDark)
-          ) {
+          } else if (activeTheme === 'light') {
             theme = 'light'
           }
         } catch (e) {

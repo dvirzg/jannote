@@ -14,7 +14,6 @@ export function ThemeSwitcher() {
   const themeOptions = [
     { value: 'dark', label: t('common:dark') },
     { value: 'light', label: t('common:light') },
-    { value: 'auto', label: t('common:system') },
   ]
 
   const { setTheme, activeTheme } = useTheme()
@@ -38,7 +37,7 @@ export function ThemeSwitcher() {
               'cursor-pointer my-0.5',
               activeTheme === item.value && 'bg-main-view-fg/5'
             )}
-            onClick={() => setTheme(item.value as 'auto' | 'light' | 'dark')}
+            onClick={() => setTheme(item.value as 'light' | 'dark')}
           >
             {item.label}
           </DropdownMenuItem>

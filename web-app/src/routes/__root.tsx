@@ -1,4 +1,4 @@
-﻿import { createRootRoute, Outlet } from '@tanstack/react-router'
+import { createRootRoute, Outlet } from '@tanstack/react-router'
 // import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 
 import LeftPanel from '@/containers/LeftPanel'
@@ -12,10 +12,6 @@ import { DataProvider } from '@/providers/DataProvider'
 import { route } from '@/constants/routes'
 import { ExtensionProvider } from '@/providers/ExtensionProvider'
 import { ToasterProvider } from '@/providers/ToasterProvider'
-import { useAnalytic } from '@/hooks/useAnalytic'
-import { PromptAnalytic } from '@/containers/analytics/PromptAnalytic'
-import { AnalyticProvider } from '@/providers/AnalyticProvider'
-import { GoogleAnalyticsProvider } from '@/providers/GoogleAnalyticsProvider'
 import { useLeftPanel } from '@/hooks/useLeftPanel'
 import { cn } from '@/lib/utils'
 import ToolApproval from '@/containers/dialogs/ToolApproval'
@@ -44,7 +40,6 @@ export const Route = createRootRoute({
 })
 
 const AppLayout = () => {
-  const { productAnalyticPrompt } = useAnalytic()
   const {
     open: isLeftPanelOpen,
     setLeftPanel,
@@ -111,10 +106,6 @@ const AppLayout = () => {
 
   return (
     <Fragment>
-      <AnalyticProvider />
-      {PlatformFeatures[PlatformFeature.GOOGLE_ANALYTICS] && (
-        <GoogleAnalyticsProvider />
-      )}
       <KeyboardShortcutsProvider />
       <main className="relative h-svh text-sm antialiased select-none bg-app">
         {/* Fake absolute panel top to enable window drag */}
@@ -174,9 +165,6 @@ const AppLayout = () => {
           </div>
         )}
       </main>
-      {PlatformFeatures[PlatformFeature.ANALYTICS] && productAnalyticPrompt && (
-        <PromptAnalytic />
-      )}
     </Fragment>
   )
 }

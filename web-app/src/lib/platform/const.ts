@@ -42,9 +42,8 @@ export const PlatformFeatures: Record<PlatformFeature, boolean> = {
   [PlatformFeature.PROJECTS]:
     isPlatformTauri() && !isPlatformIOS() && !isPlatformAndroid(),
 
-  // Analytics and telemetry - disabled for web
-  [PlatformFeature.ANALYTICS]:
-    isPlatformTauri() && !isPlatformIOS() && !isPlatformAndroid(),
+  // Analytics and telemetry - disabled
+  [PlatformFeature.ANALYTICS]: false,
 
   // Web-specific automatic model selection from jan provider - enabled for web only
   [PlatformFeature.WEB_AUTO_MODEL_SELECTION]: !isPlatformTauri(),
