@@ -17,11 +17,53 @@ let mockPromptState = {
   setPrompt: vi.fn(),
 }
 
+// Mock commands store (used for slash-command template expansion)
+let mockCommandsState = {
+  commands: [] as any[],
+}
+
+// Mock chat attachments store (Zustand-like API expected by ChatInput)
+const mockChatAttachmentsState: any = {
+  attachmentsByThread: {},
+  getAttachments: () => [],
+  setAttachments: vi.fn(),
+  clearAttachments: vi.fn(),
+  transferAttachments: vi.fn(),
+}
+
 vi.mock('@/hooks/usePrompt', () => ({
   usePrompt: (selector: any) => {
     return selector ? selector(mockPromptState) : mockPromptState
   },
 }))
+
+vi.mock('@/hooks/useCommands', () => ({
+  useCommands: (selector: any) => {
+    return selector ? selector(mockCommandsState) : mockCommandsState
+  },
+}))
+
+vi.mock('@/hooks/useAttachments', () => ({
+  useAttachments: (selector: any) => {
+    const state = {
+      enabled: true,
+      parseMode: 'auto',
+      maxFileSizeMB: 25,
+      autoInlineContextRatio: 0.25,
+    }
+    return selector ? selector(state) : state
+  },
+}))
+
+vi.mock('@/hooks/useChatAttachments', () => {
+  const useChatAttachments = ((selector?: any) =>
+    selector ? selector(mockChatAttachmentsState) : mockChatAttachmentsState) as any
+  useChatAttachments.getState = () => mockChatAttachmentsState
+  return {
+    NEW_THREAD_ATTACHMENT_KEY: '__new-thread__',
+    useChatAttachments,
+  }
+})
 
 vi.mock('@/hooks/useThreads', () => ({
   useThreads: (selector: any) => {
@@ -82,8 +124,9 @@ vi.mock('@/hooks/useModelProvider', () => ({
   },
 }))
 
+const mockSendMessage = vi.fn()
 vi.mock('@/hooks/useChat', () => ({
-  useChat: vi.fn(() => vi.fn()), // useChat returns sendMessage function directly
+  useChat: vi.fn(() => mockSendMessage), // useChat returns sendMessage function directly
 }))
 
 vi.mock('@/i18n/react-i18next-compat', () => ({
@@ -121,6 +164,10 @@ const mockServiceHub = {
   mcp: () => ({
     getConnectedServers: mockGetConnectedServers,
     getTools: mockGetTools,
+  }),
+  database: () => ({
+    list: vi.fn(async () => []),
+    toAttachments: vi.fn(async () => []),
   }),
   models: () => ({
     stopAllModels: mockStopAllModels,
@@ -223,9 +270,6 @@ vi.mock('@tabler/icons-react', () => ({
 }))
 
 describe('ChatInput', () => {
-  const mockSendMessage = vi.fn()
-  const mockSetPrompt = vi.fn()
-
   const createTestRouter = () => {
     const MockComponent = () => <ChatInput />
     const rootRoute = createRootRoute({
@@ -252,6 +296,9 @@ describe('ChatInput', () => {
     // Reset mock states
     mockPromptState.prompt = ''
     mockPromptState.setPrompt = vi.fn()
+    mockCommandsState.commands = []
+    mockSendMessage.mockReset()
+    mockChatAttachmentsState.attachmentsByThread = {}
 
     mockAppState.streamingContent = null
     mockAppState.abortControllers = {}
@@ -332,9 +379,43 @@ describe('ChatInput', () => {
       await user.click(sendButton)
     })
 
-    // Note: Since useChat now returns the sendMessage function directly, we need to mock it differently
-    // For now, we'll just check that the button was clicked successfully
     expect(sendButton).toBeInTheDocument()
+    await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+    expect(mockSendMessage.mock.calls[0]?.[0]).toBe('Hello world')
+  })
+
+  it('expands /command(args) into the template before sending', async () => {
+    const user = userEvent.setup()
+
+    mockCommandsState.commands = [
+      {
+        id: '1',
+        name: 'weather',
+        template: 'Tell me the weather in {place}, in {unit}',
+        args: [
+          { name: 'place', defaultValue: 'NYC' },
+          { name: 'unit', defaultValue: 'C' },
+        ],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ]
+
+    mockPromptState.prompt = 'good morning, /weather(nyc, celcius)'
+
+    await act(async () => {
+      renderWithRouter()
+    })
+
+    const sendButton = document.querySelector('[data-test-id="send-message-button"]')
+    await act(async () => {
+      await user.click(sendButton)
+    })
+
+    await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+    expect(mockSendMessage.mock.calls[0]?.[0]).toBe(
+      'good morning, Tell me the weather in nyc, in celcius'
+    )
   })
 
   it('sends message when Enter key is pressed', async () => {

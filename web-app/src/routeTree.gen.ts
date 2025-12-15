@@ -14,6 +14,7 @@ import { Route as rootRoute } from './routes/__root'
 import { Route as SystemMonitorImport } from './routes/system-monitor'
 import { Route as LogsImport } from './routes/logs'
 import { Route as DatabaseImport } from './routes/database'
+import { Route as CommandsImport } from './routes/commands'
 import { Route as IndexImport } from './routes/index'
 import { Route as ProjectIndexImport } from './routes/project/index'
 import { Route as HubIndexImport } from './routes/hub/index'
@@ -54,6 +55,12 @@ const LogsRoute = LogsImport.update({
 const DatabaseRoute = DatabaseImport.update({
   id: '/database',
   path: '/database',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const CommandsRoute = CommandsImport.update({
+  id: '/commands',
+  path: '/commands',
   getParentRoute: () => rootRoute,
 } as any)
 
@@ -199,6 +206,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexImport
+      parentRoute: typeof rootRoute
+    }
+    '/commands': {
+      id: '/commands'
+      path: '/commands'
+      fullPath: '/commands'
+      preLoaderRoute: typeof CommandsImport
       parentRoute: typeof rootRoute
     }
     '/database': {
@@ -376,6 +390,7 @@ declare module '@tanstack/react-router' {
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/commands': typeof CommandsRoute
   '/database': typeof DatabaseRoute
   '/logs': typeof LogsRoute
   '/system-monitor': typeof SystemMonitorRoute
@@ -404,6 +419,7 @@ export interface FileRoutesByFullPath {
 
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/commands': typeof CommandsRoute
   '/database': typeof DatabaseRoute
   '/logs': typeof LogsRoute
   '/system-monitor': typeof SystemMonitorRoute
@@ -433,6 +449,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRoute
   '/': typeof IndexRoute
+  '/commands': typeof CommandsRoute
   '/database': typeof DatabaseRoute
   '/logs': typeof LogsRoute
   '/system-monitor': typeof SystemMonitorRoute
@@ -463,6 +480,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/commands'
     | '/database'
     | '/logs'
     | '/system-monitor'
@@ -490,6 +508,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/commands'
     | '/database'
     | '/logs'
     | '/system-monitor'
@@ -517,6 +536,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/commands'
     | '/database'
     | '/logs'
     | '/system-monitor'
@@ -546,6 +566,7 @@ export interface FileRouteTypes {
 
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CommandsRoute: typeof CommandsRoute
   DatabaseRoute: typeof DatabaseRoute
   LogsRoute: typeof LogsRoute
   SystemMonitorRoute: typeof SystemMonitorRoute
@@ -574,6 +595,7 @@ export interface RootRouteChildren {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CommandsRoute: CommandsRoute,
   DatabaseRoute: DatabaseRoute,
   LogsRoute: LogsRoute,
   SystemMonitorRoute: SystemMonitorRoute,
@@ -611,6 +633,7 @@ export const routeTree = rootRoute
       "filePath": "__root.tsx",
       "children": [
         "/",
+        "/commands",
         "/database",
         "/logs",
         "/system-monitor",
@@ -639,6 +662,9 @@ export const routeTree = rootRoute
     },
     "/": {
       "filePath": "index.tsx"
+    },
+    "/commands": {
+      "filePath": "commands.tsx"
     },
     "/database": {
       "filePath": "database.tsx"

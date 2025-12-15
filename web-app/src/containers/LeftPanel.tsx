@@ -16,6 +16,7 @@ import {
   IconPencil,
   IconTrash,
   IconDatabase,
+  IconCommand,
 } from '@tabler/icons-react'
 import { route } from '@/constants/routes'
 import ThreadList from './ThreadList'
@@ -56,6 +57,12 @@ const mainMenus = [
     title: 'common:database.title',
     icon: IconDatabase,
     route: route.database,
+    isEnabled: true,
+  },
+  {
+    title: 'common:commands',
+    icon: IconCommand,
+    route: route.commands,
     isEnabled: true,
   },
   {

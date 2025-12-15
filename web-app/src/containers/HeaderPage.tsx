@@ -54,7 +54,7 @@ const HeaderPage = ({ children }: HeaderPageProps) => {
   return (
     <div
       className={cn(
-        'h-10 text-main-view-fg flex items-center shrink-0 border-b border-main-view-fg/5',
+        'h-10 text-main-view-fg flex items-center shrink-0 border-b border-main-view-fg/5 bg-main-view relative z-10',
         // Mobile-first responsive padding
         isMobile ? 'px-3' : 'px-4',
         // macOS-specific padding when panel is closed

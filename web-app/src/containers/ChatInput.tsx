@@ -79,6 +79,8 @@ import {
 import JanBrowserExtensionDialog from '@/containers/dialogs/JanBrowserExtensionDialog'
 import { useJanBrowserExtension } from '@/hooks/useJanBrowserExtension'
 import { injectDbRefsIntoPrompt } from '@/lib/dbRefs'
+import { useCommands } from '@/hooks/useCommands'
+import { expandCommandsInPrompt } from '@/lib/commands'
 
 type ChatInputProps = {
   className?: string
@@ -130,6 +132,7 @@ const ChatInput = ({
   const selectedModel = useModelProvider((state) => state.selectedModel)
   const selectedProvider = useModelProvider((state) => state.selectedProvider)
   const sendMessage = useChat()
+  const commands = useCommands((state) => state.commands)
   const [message, setMessage] = useState('')
   const [mentionStart, setMentionStart] = useState<number | null>(null)
   const [mentionQuery, setMentionQuery] = useState('')
@@ -443,9 +446,12 @@ const ChatInput = ({
       setMessage('Please select a model to start chatting.')
       return
     }
+    const { expanded: promptWithCommands } = expandCommandsInPrompt(prompt, commands)
     const mentionedRefKeys = Array.from(
       new Set(
-        Array.from(prompt.matchAll(/@ref:([A-Za-z0-9_-]+)/g)).map((m) => m[1]).filter(Boolean)
+        Array.from(promptWithCommands.matchAll(/@ref:([A-Za-z0-9_-]+)/g))
+          .map((m) => m[1])
+          .filter(Boolean)
       )
     )
     const dbRefs = mentionedRefKeys
@@ -461,7 +467,7 @@ const ChatInput = ({
       })
       .filter((v): v is NonNullable<typeof v> => Boolean(v))
 
-    const promptWithDbRefs = injectDbRefsIntoPrompt(prompt, dbRefs)
+    const promptWithDbRefs = injectDbRefsIntoPrompt(promptWithCommands, dbRefs)
 
     const expandedPrompt = promptWithDbRefs.replace(/@ref:([A-Za-z0-9_-]+)/g, (full, key) => {
       const meta = mentionMap[key]

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { Route as PrivacyRoute } from '../privacy'
 
 // Mock dependencies
@@ -89,99 +89,12 @@ describe('Privacy Settings Route', () => {
     expect(screen.getByText('common:settings')).toBeInTheDocument()
   })
 
-  it('should render analytics card with header', () => {
+  it('should not render removed privacy settings controls', () => {
     const Component = PrivacyRoute.component as React.ComponentType
     render(<Component />)
 
-    expect(screen.getByTestId('card')).toBeInTheDocument()
-    expect(screen.getByTestId('card-header')).toBeInTheDocument()
-    expect(screen.getByText('settings:privacy.analytics')).toBeInTheDocument()
-  })
-
-  it('should render analytics switch', () => {
-    const Component = PrivacyRoute.component as React.ComponentType
-    render(<Component />)
-
-    const analyticsSwitch = screen.getByTestId('switch')
-    expect(analyticsSwitch).toBeInTheDocument()
-    expect(analyticsSwitch).not.toBeChecked()
-  })
-
-  it('should handle analytics toggle when enabling', () => {
-    const Component = PrivacyRoute.component as React.ComponentType
-    render(<Component />)
-
-    const analyticsSwitch = screen.getByTestId('switch')
-    expect(analyticsSwitch).toBeInTheDocument()
-    
-    // Test that switch is interactive
-    fireEvent.click(analyticsSwitch)
-    expect(analyticsSwitch).toBeInTheDocument()
-  })
-
-  it('should handle analytics toggle when disabling', () => {
-    const Component = PrivacyRoute.component as React.ComponentType
-    render(<Component />)
-
-    const analyticsSwitch = screen.getByTestId('switch')
-    expect(analyticsSwitch).toBeInTheDocument()
-    
-    // Test that switch is interactive
-    fireEvent.click(analyticsSwitch)
-    expect(analyticsSwitch).toBeInTheDocument()
-  })
-
-  it('should have proper layout structure', () => {
-    const Component = PrivacyRoute.component as React.ComponentType
-    render(<Component />)
-
-    const headerPage = screen.getByTestId('header-page')
-    expect(headerPage).toBeInTheDocument()
-    
-    const settingsMenu = screen.getByTestId('settings-menu')
-    expect(settingsMenu).toBeInTheDocument()
-  })
-
-  it('should render switch in correct checked state based on productAnalytic', () => {
-    const Component = PrivacyRoute.component as React.ComponentType
-    render(<Component />)
-
-    const analyticsSwitch = screen.getByTestId('switch')
-    expect(analyticsSwitch).toBeInTheDocument()
-    // Test that switch has some state
-    expect(analyticsSwitch).toHaveAttribute('type', 'checkbox')
-  })
-
-  it('should render switch in unchecked state when productAnalytic is false', () => {
-    const Component = PrivacyRoute.component as React.ComponentType
-    render(<Component />)
-
-    const analyticsSwitch = screen.getByTestId('switch')
-    expect(analyticsSwitch).toBeInTheDocument()
-    expect(analyticsSwitch).toHaveAttribute('type', 'checkbox')
-  })
-
-  it('should call translation function with correct keys', () => {
-    const Component = PrivacyRoute.component as React.ComponentType
-    render(<Component />)
-
-    // Test that translations are rendered
-    expect(screen.getByText('common:settings')).toBeInTheDocument()
-    expect(screen.getByText('settings:privacy.analytics')).toBeInTheDocument()
-  })
-
-  it('should handle switch state change properly', () => {
-    const Component = PrivacyRoute.component as React.ComponentType
-    render(<Component />)
-
-    const analyticsSwitch = screen.getByTestId('switch')
-    
-    // Test that switch can be toggled
-    fireEvent.click(analyticsSwitch)
-    expect(analyticsSwitch).toBeInTheDocument()
-    
-    // Test that switch can be toggled again
-    fireEvent.click(analyticsSwitch)
-    expect(analyticsSwitch).toBeInTheDocument()
+    expect(screen.queryByText('settings:privacy.analytics')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('switch')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('card')).not.toBeInTheDocument()
   })
 })

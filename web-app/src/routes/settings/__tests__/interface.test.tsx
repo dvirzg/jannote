@@ -1,5 +1,5 @@
 ﻿import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { Route as InterfaceRoute } from '../interface'
 
 // Mock all the dependencies
@@ -75,40 +75,16 @@ vi.mock('@/containers/LineNumbersSwitcher', () => ({
   LineNumbersSwitcher: () => <div data-testid="line-numbers-switcher">Line Numbers Switcher</div>,
 }))
 
-vi.mock('@/containers/CodeBlockExample', () => ({
-  CodeBlockExample: () => <div data-testid="code-block-example">Code Block Example</div>,
-}))
-
-vi.mock('@/hooks/useInterfaceSettings', () => ({
-  useInterfaceSettings: () => ({
-    resetInterface: vi.fn(),
-  }),
-}))
-
-vi.mock('@/hooks/useCodeblock', () => ({
-  useCodeblock: () => ({
-    resetCodeBlockStyle: vi.fn(),
-  }),
+vi.mock('@/containers/TokenCounterCompactSwitcher', () => ({
+  TokenCounterCompactSwitcher: () => (
+    <div data-testid="token-counter-compact-switcher">Token Counter Compact Switcher</div>
+  ),
 }))
 
 vi.mock('@/i18n/react-i18next-compat', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
   }),
-}))
-
-vi.mock('@/components/ui/button', () => ({
-  Button: ({ children, onClick, ...props }: { children: React.ReactNode; onClick?: () => void; [key: string]: any }) => (
-    <button data-testid="button" onClick={onClick} {...props}>
-      {children}
-    </button>
-  ),
-}))
-
-vi.mock('sonner', () => ({
-  toast: {
-    success: vi.fn(),
-  },
 }))
 
 vi.mock('@/constants/routes', () => ({
@@ -146,90 +122,20 @@ describe('Interface Settings Route', () => {
 
     expect(screen.getByTestId('theme-switcher')).toBeInTheDocument()
     expect(screen.getByTestId('font-size-switcher')).toBeInTheDocument()
-    expect(screen.getByTestId('color-picker-bg')).toBeInTheDocument()
-    expect(screen.getByTestId('color-picker-main-view')).toBeInTheDocument()
-    expect(screen.getByTestId('color-picker-primary')).toBeInTheDocument()
-    expect(screen.getByTestId('color-picker-accent')).toBeInTheDocument()
-    expect(screen.getByTestId('color-picker-destructive')).toBeInTheDocument()
   })
 
-  it('should render chat width controls', () => {
+  it('should render chat/message controls', () => {
     const Component = InterfaceRoute.component as React.ComponentType
     render(<Component />)
 
-    expect(screen.getByTestId('chat-width-switcher')).toBeInTheDocument()
-    expect(screen.getByTestId('thread-scroll-switcher')).toBeInTheDocument()
+    expect(screen.getByTestId('token-counter-compact-switcher')).toBeInTheDocument()
   })
 
-  it('should render code block controls', () => {
+  it('should render code-related controls', () => {
     const Component = InterfaceRoute.component as React.ComponentType
     render(<Component />)
 
-    expect(screen.getByTestId('code-block-style-switcher')).toBeInTheDocument()
-    expect(screen.getByTestId('code-block-example')).toBeInTheDocument()
     expect(screen.getByTestId('line-numbers-switcher')).toBeInTheDocument()
-  })
-
-  it('should render reset interface button', () => {
-    const Component = InterfaceRoute.component as React.ComponentType
-    render(<Component />)
-
-    const resetButtons = screen.getAllByTestId('button')
-    expect(resetButtons.length).toBeGreaterThan(0)
-  })
-
-  it('should render reset buttons', () => {
-    const Component = InterfaceRoute.component as React.ComponentType
-    render(<Component />)
-
-    const resetButtons = screen.getAllByTestId('button')
-    expect(resetButtons.length).toBeGreaterThan(0)
-    
-    // Check that buttons are clickable
-    resetButtons.forEach(button => {
-      expect(button).toBeInTheDocument()
-    })
-  })
-
-  it('should render reset functionality', () => {
-    const Component = InterfaceRoute.component as React.ComponentType
-    render(<Component />)
-
-    const resetButtons = screen.getAllByTestId('button')
-    expect(resetButtons.length).toBeGreaterThan(0)
-    
-    // Verify buttons can be clicked without errors
-    resetButtons.forEach(button => {
-      fireEvent.click(button)
-      expect(button).toBeInTheDocument()
-    })
-  })
-
-  it('should render all card items with proper structure', () => {
-    const Component = InterfaceRoute.component as React.ComponentType
-    render(<Component />)
-
-    const cardItems = screen.getAllByTestId('card-item')
-    expect(cardItems.length).toBeGreaterThan(0)
-    
-    // Check that cards have proper structure
-    const cards = screen.getAllByTestId('card')
-    expect(cards.length).toBeGreaterThan(0)
-  })
-
-  it('should have proper responsive layout classes', () => {
-    const Component = InterfaceRoute.component as React.ComponentType
-    render(<Component />)
-
-    const cardItems = screen.getAllByTestId('card-item')
-    
-    // Check that some card items have responsive classes
-    const responsiveItems = cardItems.filter(item => 
-      item.className?.includes('flex-col') || 
-      item.className?.includes('sm:flex-row')
-    )
-    
-    expect(responsiveItems.length).toBeGreaterThan(0)
   })
 
   it('should render main layout structure', () => {
