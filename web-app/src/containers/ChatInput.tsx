@@ -228,6 +228,8 @@ const ChatInput = ({
     return filtered.slice(0, 8)
   }, [flattenedDatabaseEntries, mentionQuery, mentionStart])
 
+  const mentionVisible = mentionStart !== null
+
   const findTokenRangeAt = useCallback((text: string, pos: number) => {
     const regex = /@db:[A-Za-z0-9_-]+/g
     let match: RegExpExecArray | null
@@ -1279,28 +1281,34 @@ const ChatInput = ({
             </div>
           )}
 
-          {mentionStart !== null && mentionSuggestions.length > 0 && (
+          {mentionVisible && (
             <div className="mt-2 px-4">
               <div className="rounded-lg border border-main-view-fg/10 bg-main-view shadow-lg overflow-hidden">
-                {mentionSuggestions.map((s, idx) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className={cn(
-                      'w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-main-view-fg/5',
-                      idx === selectedMentionIndex && 'bg-main-view-fg/5'
-                    )}
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      insertMentionToken(s.id, s.name)
-                    }}
-                  >
-                    <div className="flex flex-col items-start">
-                      <span className="text-sm text-main-view-fg">{s.name}</span>
-                      <span className="text-xs text-main-view-fg/60 truncate">/ {s.path}</span>
-                    </div>
-                  </button>
-                ))}
+                {mentionSuggestions.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-main-view-fg/60">
+                    No database items found
+                  </div>
+                ) : (
+                  mentionSuggestions.map((s, idx) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={cn(
+                        'w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-main-view-fg/5',
+                        idx === selectedMentionIndex && 'bg-main-view-fg/5'
+                      )}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        insertMentionToken(s.id, s.name)
+                      }}
+                    >
+                      <div className="flex flex-col items-start">
+                        <span className="text-sm text-main-view-fg">{s.name}</span>
+                        <span className="text-xs text-main-view-fg/60 truncate">/ {s.path}</span>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             </div>
           )}
