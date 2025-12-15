@@ -42,8 +42,8 @@
   "reportAnIssueDesc": "Znalazłeś/-aś błąd? Pomóż nam, zgłaszając go na GitHubie.",
   "reportIssue": "Zgłoś Problem",
   "credits": "Podziękowania",
-  "creditsDesc1": "Aplikacja Jan jest rozwijana z ❤️ przez Zespół Menlo.",
-  "creditsDesc2": "Szczególne podziękowania dla naszych otwartoźródłowych zależności - zwłaszcza llama.cpp i Tauri - oraz dla naszej wspaniałej społeczności SI.",
+  "creditsDesc1": "👋 Ta aplikacja jest oparta na Jan, rozwijanej z ❤️ przez zespół Menlo Research.",
+  "creditsDesc2": "Szczególne podziękowania dla zespołu Jan i naszych otwartoźródłowych zależności - zwłaszcza llama.cpp i Tauri - oraz dla naszej wspaniałej społeczności SI.",
   "appVersion": "Wersja Aplikacji",
   "dataFolder": {
     "appData": "Katalog Danych",
@@ -250,8 +250,8 @@
     "reportAnIssueDesc": "Znalazłeś/-aś błąd? Pomóż nam, zgłaszając go na GitHubie.",
     "reportIssue": "Zgłoś Problem",
     "credits": "Podziękowania",
-    "creditsDesc1": "Aplikacja 👋 Jan jest rozwijana z ❤️ przez zespół Menlo Research.",
-    "creditsDesc2": "Szczególne podziękowania dla naszych otwartoźródłowych zależności - zwłaszcza llama.cpp i Tauri - oraz dla naszej wspaniałej społeczności SI."
+    "creditsDesc1": "👋 Ta aplikacja jest oparta na Jan, rozwijanej z ❤️ przez zespół Menlo Research.",
+    "creditsDesc2": "Szczególne podziękowania dla zespołu Jan i naszych otwartoźródłowych zależności - zwłaszcza llama.cpp i Tauri - oraz dla naszej wspaniałej społeczności SI."
   },
   "extensions": {
     "title": "Rozszerzenia"

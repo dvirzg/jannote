@@ -42,8 +42,8 @@
   "reportAnIssueDesc": "Hast Du einen Bug gefunden? Hilf uns, indem Du ein Problem auf GitHub meldest.",
   "reportIssue": "Problem melden",
   "credits": "Credits",
-  "creditsDesc1": "Jan wurde mit ❤️ gebaut vom Menlo Team.",
-  "creditsDesc2": "Besonderer Dank gilt unseren Open-Source-Abhängigkeiten - insbesondere llama.cpp und Tauri - und unserer großartigen KI-Community.",
+  "creditsDesc1": "👋 Diese Anwendung basiert auf Jan, das mit ❤️ vom Menlo Research Team entwickelt wurde.",
+  "creditsDesc2": "Besonderer Dank gilt dem Jan-Team und unseren Open-Source-Abhängigkeiten - insbesondere llama.cpp und Tauri - und unserer großartigen KI-Community.",
   "appVersion": "App Version",
   "dataFolder": {
     "appData": "App Daten",
@@ -250,8 +250,8 @@
     "reportAnIssueDesc": "Hast Du einen Bug gefunden? Hilf uns, indem Du ein Problem auf GitHub meldest.",
     "reportIssue": "Problem melden",
     "credits": "Credits",
-    "creditsDesc1": "Jan wurde mit ❤️ gebaut vom Menlo Team.",
-    "creditsDesc2": "Besonderer Dank gilt unseren Open-Source-Abhängigkeiten - insbesondere llama.cpp und Tauri - und unserer großartigen KI-Community."
+    "creditsDesc1": "👋 Diese Anwendung basiert auf Jan, das mit ❤️ vom Menlo Research Team entwickelt wurde.",
+    "creditsDesc2": "Besonderer Dank gilt dem Jan-Team und unseren Open-Source-Abhängigkeiten - insbesondere llama.cpp und Tauri - und unserer großartigen KI-Community."
   },
   "extensions": {
     "title": "Erweiterungen"

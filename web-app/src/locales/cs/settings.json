@@ -42,8 +42,8 @@
   "reportAnIssueDesc": "Našli jste chybu? Pomozte nám nahlášením problému na GitHubu.",
   "reportIssue": "Nahlásit problém",
   "credits": "Poděkování",
-  "creditsDesc1": "👋 Jan je vytvořen s ❤️ týmem Menlo Research.",
-  "creditsDesc2": "Speciální poděkování našim open-source závislostem—zejména llama.cpp a Tauri—a naší úžasné AI komunitě.",
+  "creditsDesc1": "👋 Tato aplikace je založena na Janu, který byl vytvořen s ❤️ týmem Menlo Research.",
+  "creditsDesc2": "Speciální poděkování týmu Jan a našim open-source závislostem—zejména llama.cpp a Tauri—a naší úžasné AI komunitě.",
   "appVersion": "Verze aplikace",
   "dataFolder": {
     "appData": "Data aplikace",
@@ -258,8 +258,8 @@
     "reportAnIssueDesc": "Našli jste chybu? Pomozte nám nahlášením problému na GitHubu.",
     "reportIssue": "Nahlásit problém",
     "credits": "Poděkování",
-    "creditsDesc1": "👋 Jan je vytvořen s ❤️ týmem Menlo Research.",
-    "creditsDesc2": "Speciální poděkování našim open-source závislostem—zejména llama.cpp a Tauri—a naší úžasné AI komunitě."
+    "creditsDesc1": "👋 Tato aplikace je založena na Janu, který byl vytvořen s ❤️ týmem Menlo Research.",
+    "creditsDesc2": "Speciální poděkování týmu Jan a našim open-source závislostem—zejména llama.cpp a Tauri—a naší úžasné AI komunitě."
   },
   "extensions": {
     "title": "Rozšíření"
