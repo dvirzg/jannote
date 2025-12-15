@@ -17,6 +17,7 @@ export interface DatabaseService {
   root(): Promise<string>
   list(): Promise<DatabaseEntry[]>
   addPaths(paths: string[], ingestionMode: DatabaseIngestionMode): Promise<DatabaseEntry[]>
+  addPathsWithModes(pathsWithModes: Array<{ path: string; mode: DatabaseIngestionMode }>): Promise<DatabaseEntry[]>
   deleteById(id: string): Promise<void>
   getIndex(): Promise<DatabaseEntry[]>
   toAttachments(ids: string[]): Promise<Attachment[]>

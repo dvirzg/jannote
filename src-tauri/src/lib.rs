@@ -56,6 +56,7 @@ pub fn run() {
             core::filesystem::commands::read_file_sync,
             core::filesystem::commands::rm,
             core::filesystem::commands::mv,
+            core::filesystem::commands::copy_file,
             core::filesystem::commands::file_stat,
             core::filesystem::commands::write_file_sync,
             core::filesystem::commands::write_yaml,

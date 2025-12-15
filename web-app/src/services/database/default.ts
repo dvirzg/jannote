@@ -16,6 +16,11 @@ export class DefaultDatabaseService implements DatabaseService {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async addPathsWithModes(_pathsWithModes: Array<{ path: string; mode: DatabaseIngestionMode }>): Promise<DatabaseEntry[]> {
+    throw new Error('Database service not available on this platform')
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async deleteById(_id: string): Promise<void> {
     throw new Error('Database service not available on this platform')
   }

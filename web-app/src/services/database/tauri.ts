@@ -1,5 +1,6 @@
 import { fs } from '@janhq/core'
 import { homeDir, join } from '@tauri-apps/api/path'
+import { invoke } from '@tauri-apps/api/core'
 import { ulid } from 'ulidx'
 import { createDocumentAttachment, type Attachment } from '@/types/attachment'
 import type {
@@ -13,6 +14,23 @@ const INDEX_FILENAME = '.jan-database-index.json'
 const DB_FOLDER_NAME = 'database'
 
 type RawIndexEntry = Omit<DatabaseEntry, 'children'>
+
+// Helper to safely convert errors to strings without template literal evaluation
+const safeErrorToString = (e: unknown): string => {
+  try {
+    if (e instanceof Error) {
+      // Only use the message property, never the whole error object
+      const msg = e.message || 'Unknown error'
+      // Escape template literal syntax to prevent evaluation
+      return msg.replace(/\$\{/g, '\\${')
+    }
+    const str = String(e)
+    // Escape template literal syntax to prevent evaluation
+    return str.replace(/\$\{/g, '\\${')
+  } catch {
+    return 'Unknown error occurred'
+  }
+}
 
 export class TauriDatabaseService
   extends DefaultDatabaseService
@@ -132,15 +150,18 @@ export class TauriDatabaseService
     sourcePath: string,
     destRoot: string,
     destRelative: string,
-    ingestionMode: DatabaseIngestionMode
+    mode: DatabaseIngestionMode
   ): Promise<RawIndexEntry[]> {
+    if (!mode || (mode !== 'inline' && mode !== 'embeddings')) {
+      throw new Error('Invalid ingestion mode: must be "inline" or "embeddings"')
+    }
     const entries: RawIndexEntry[] = []
     const stat = await fs.fileStat(sourcePath)
     const name = sourcePath.split(/[\\/]/).pop() || sourcePath
 
     const targetPath = await join(destRoot, destRelative)
 
-    if (stat?.is_directory) {
+    if (stat?.isDirectory) {
       await fs.mkdir(targetPath)
       const folderEntry: RawIndexEntry = {
         id: ulid(),
@@ -149,7 +170,7 @@ export class TauriDatabaseService
         relativePath: destRelative,
         type: 'folder',
         size: 0,
-        injectionMode,
+        injectionMode: mode,
       }
       entries.push(folderEntry)
 
@@ -162,12 +183,20 @@ export class TauriDatabaseService
           child,
           destRoot,
           childRelative,
-          ingestionMode
+          mode
         )
         entries.push(...childEntries)
       }
     } else {
-      await fs.copyFile(sourcePath, targetPath)
+      try {
+        // Call the Rust command directly
+        await invoke('copy_file', { src: sourcePath, dest: targetPath })
+      } catch (e) {
+        const errorMessage = safeErrorToString(e)
+        console.error('Failed to copy file:', sourcePath, 'to', targetPath, 'error:', errorMessage)
+        // Use string concatenation to avoid template literal evaluation issues
+        throw new Error('Failed to copy file: ' + errorMessage)
+      }
       const fileEntry: RawIndexEntry = {
         id: ulid(),
         name,
@@ -175,7 +204,7 @@ export class TauriDatabaseService
         relativePath: destRelative,
         type: 'file',
         size: stat?.size ?? 0,
-        injectionMode,
+        injectionMode: mode,
       }
       entries.push(fileEntry)
     }
@@ -188,6 +217,9 @@ export class TauriDatabaseService
     ingestionMode: DatabaseIngestionMode
   ): Promise<DatabaseEntry[]> {
     if (!paths?.length) return this.list()
+    if (!ingestionMode || (ingestionMode !== 'inline' && ingestionMode !== 'embeddings')) {
+      throw new Error('Invalid ingestion mode provided')
+    }
     const root = await this.ensureRoot()
     const index = await this.readIndex()
     const newEntries: RawIndexEntry[] = []
@@ -198,8 +230,44 @@ export class TauriDatabaseService
         root,
         sourceName
       )
-      const copied = await this.copyPath(p, root, relativePath, ingestionMode)
-      newEntries.push(...copied)
+      try {
+        const copied = await this.copyPath(p, root, relativePath, ingestionMode)
+        newEntries.push(...copied)
+      } catch (e) {
+        const errorMsg = safeErrorToString(e)
+        console.error('Failed to copy path:', p, 'error:', errorMsg)
+        // Use string concatenation to avoid template literal evaluation issues
+        throw new Error('Failed to copy ' + sourceName + ': ' + errorMsg)
+      }
+    }
+
+    const merged = [...index, ...newEntries]
+    await this.writeIndex(merged)
+    return this.buildTree(merged)
+  }
+
+  async addPathsWithModes(
+    pathsWithModes: Array<{ path: string; mode: DatabaseIngestionMode }>
+  ): Promise<DatabaseEntry[]> {
+    if (!pathsWithModes?.length) return this.list()
+    const root = await this.ensureRoot()
+    const index = await this.readIndex()
+    const newEntries: RawIndexEntry[] = []
+
+    for (const { path: p, mode } of pathsWithModes) {
+      if (!mode || (mode !== 'inline' && mode !== 'embeddings')) {
+        throw new Error('Invalid ingestion mode provided')
+      }
+      const sourceName = p.split(/[\\/]/).pop() || p
+      const { relativePath } = await this.uniquePath(root, sourceName)
+      try {
+        const copied = await this.copyPath(p, root, relativePath, mode)
+        newEntries.push(...copied)
+      } catch (e) {
+        const errorMsg = safeErrorToString(e)
+        console.error('Failed to copy path:', p, 'error:', errorMsg)
+        throw new Error('Failed to copy ' + sourceName + ': ' + errorMsg)
+      }
     }
 
     const merged = [...index, ...newEntries]

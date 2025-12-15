@@ -81,6 +81,12 @@
     "loading": "Loading database...",
     "empty": "No files yet. Upload files or folders to reuse them in chat with @db:<id>."
   },
+  "databaseIngestion": {
+    "title": "Choose ingestion mode",
+    "description": "How should this file be processed when referenced in chat?",
+    "embeddings": "Embeddings",
+    "inline": "Raw inject"
+  },
   "thinking": "Thinking...",
   "thought": "Thought",
   "callingTool": "Calling tool",
@@ -252,8 +258,8 @@
   "projects": {
     "title": "Chat Folders",
     "addProject": "Add Chat Folder",
-    "addToProject": "Add to chat folder",
-    "removeFromProject": "Remove from chat folder",
+    "addToProject": "Add to folder",
+    "removeFromProject": "Remove from folder",
     "createNewProject": "Create New Chat Folder",
     "editProject": "Edit Chat Folder",
     "deleteProject": "Delete Chat Folder",

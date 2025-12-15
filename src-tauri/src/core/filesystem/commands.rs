@@ -51,6 +51,33 @@ pub fn mv<R: Runtime>(app_handle: tauri::AppHandle<R>, args: Vec<String>) -> Res
 }
 
 #[tauri::command]
+pub fn copy_file<R: Runtime>(app_handle: tauri::AppHandle<R>, src: String, dest: String) -> Result<(), String> {
+    if src.is_empty() || dest.is_empty() {
+        return Err("copy_file error: Invalid argument - source and destination required".to_string());
+    }
+
+    let source = resolve_path(app_handle.clone(), &src);
+    let destination = resolve_path(app_handle, &dest);
+
+    if !source.exists() {
+        return Err("copy_file error: Source path does not exist".to_string());
+    }
+
+    if source.is_dir() {
+        return Err("copy_file error: Source is a directory, use recursive copy instead".to_string());
+    }
+
+    // Ensure destination directory exists
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    fs::copy(&source, &destination)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn join_path<R: Runtime>(
     app_handle: tauri::AppHandle<R>,
     args: Vec<String>,

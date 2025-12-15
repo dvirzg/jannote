@@ -303,7 +303,7 @@ const SortableItem = memo(
                     }}
                   >
                     <IconX size={16} />
-                    <span>Remove from project</span>
+                    <span>Remove from folder</span>
                   </DropdownMenuItem>
                 </>
               )}
