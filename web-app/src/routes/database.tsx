@@ -83,17 +83,20 @@ const GridItem = ({
   entry,
   onDelete,
   onFolderClick,
+  onRename,
 }: {
   entry: DatabaseEntry
   onDelete: (id: string) => void
   onFolderClick?: (entry: DatabaseEntry) => void
+  onRename?: (entry: DatabaseEntry) => void
 }) => {
   const [isHovered, setIsHovered] = useState(false)
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
   const textRef = React.useRef<HTMLDivElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
   const isFolder = entry.type === 'folder'
-  const Icon = getFileIcon(entry.name, isFolder)
+  const displayName = entry.displayName || entry.name
+  const Icon = getFileIcon(displayName, isFolder)
   const mention = `@db:${entry.id}`
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -103,14 +106,14 @@ const GridItem = ({
   }
 
   useEffect(() => {
-    if (isHovered && entry.name.length > 15 && textRef.current) {
+    if (isHovered && displayName.length > 15 && textRef.current) {
       // Calculate scroll distance: half of the total width (text + gap + text)
       // This creates seamless infinite loop - when it scrolls half way, it loops back
       const totalWidth = textRef.current.scrollWidth
       const scrollDistance = totalWidth / 2
       textRef.current.style.setProperty('--scroll-distance', `-${scrollDistance}px`)
     }
-  }, [isHovered, entry.name.length])
+  }, [isHovered, displayName.length])
 
   return (
     <DropdownMenu open={isContextMenuOpen} onOpenChange={setIsContextMenuOpen} modal={false}>
@@ -149,11 +152,11 @@ const GridItem = ({
             <div
               className={cn(
                 'text-sm font-medium px-1 relative w-full',
-                isHovered && entry.name.length > 15 ? 'overflow-hidden' : 'truncate'
+                isHovered && displayName.length > 15 ? 'overflow-hidden' : 'truncate'
               )}
-              title={entry.name}
+              title={displayName}
             >
-              {isHovered && entry.name.length > 15 ? (
+              {isHovered && displayName.length > 15 ? (
                 <div ref={containerRef} className="relative overflow-hidden w-full inline-block">
                   <div
                     ref={textRef}
@@ -163,13 +166,13 @@ const GridItem = ({
                       willChange: 'transform',
                     }}
                   >
-                    {entry.name}
+                    {displayName}
                     <span className="inline-block" style={{ width: '40px' }} />
-                    {entry.name}
+                    {displayName}
                   </div>
                 </div>
               ) : (
-                <span>{entry.name}</span>
+                <span>{displayName}</span>
               )}
             </div>
             <div className="text-xs text-main-view-fg/60 mt-1">
@@ -180,6 +183,9 @@ const GridItem = ({
                   {formatFileSize(entry.size)}
                   {entry.size && ' · '}
                   {entry.injectionMode === 'inline' ? 'Raw' : 'Embed'}
+                  {entry.displayName && entry.displayName !== entry.name ? (
+                    <div className="text-[11px] text-main-view-fg/50 mt-1">Original: {entry.name}</div>
+                  ) : null}
                 </>
               )}
             </div>
@@ -189,6 +195,15 @@ const GridItem = ({
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation()
+            onRename?.(entry)
+            setIsContextMenuOpen(false)
+          }}
+        >
+          Rename reference
+        </DropdownMenuItem>
         <DropdownMenuItem
           onClick={(e) => {
             e.stopPropagation()
@@ -218,9 +233,13 @@ const GridItem = ({
 function DatabasePage() {
   const { t } = useTranslation()
   const { entries, loading } = useDatabaseData()
-  const { refresh, pickAndAddFiles, pickAndAddFolder, deleteById, getEntryById } = useDatabaseActions()
+  const { refresh, pickAndAddFiles, pickAndAddFolder, deleteById, getEntryById, updateReferenceName } =
+    useDatabaseActions()
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
   const [folderStack, setFolderStack] = useState<Array<{ id: string; name: string }>>([])
+  const [renameTarget, setRenameTarget] = useState<DatabaseEntry | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renameSaving, setRenameSaving] = useState(false)
 
   useEffect(() => {
     // Add CSS for scrolling animation
@@ -290,8 +309,62 @@ function DatabasePage() {
     }
   }
 
+  const handleRename = async (entry: DatabaseEntry) => {
+    setRenameTarget(entry)
+    setRenameValue(entry.displayName || entry.name)
+  }
+
+  const submitRename = async () => {
+    if (!renameTarget) return
+    const trimmed = renameValue.trim()
+    if (!trimmed) {
+      setRenameTarget(null)
+      return
+    }
+    try {
+      setRenameSaving(true)
+      await updateReferenceName(renameTarget.id, trimmed)
+    } finally {
+      setRenameSaving(false)
+      setRenameTarget(null)
+    }
+  }
+
   return (
     <div className="flex h-full flex-col bg-main-view text-main-view-fg">
+      {renameTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="bg-main-view text-main-view-fg border border-main-view-fg/10 rounded-lg shadow-xl p-4 w-full max-w-md">
+            <div className="text-sm font-semibold mb-2">Rename reference</div>
+            <div className="text-xs text-main-view-fg/70 mb-3">
+              This only changes the mention label, not the actual file name.
+            </div>
+            <input
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              className="w-full rounded-md border border-main-view-fg/20 bg-main-view/60 px-3 py-2 text-sm outline-none focus:border-main-view-fg/40"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setRenameTarget(null)
+                  setRenameValue('')
+                }}
+                disabled={renameSaving}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" onClick={submitRename} disabled={renameSaving}>
+                {renameSaving ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="border-b border-main-view-fg/10 px-6 py-3 flex items-center justify-between relative z-10 bg-main-view">
         <div className="flex items-center gap-3">
@@ -385,6 +458,7 @@ function DatabasePage() {
                 entry={entry}
                 onDelete={deleteById}
                 onFolderClick={handleFolderClick}
+                onRename={handleRename}
               />
             ))}
           </div>

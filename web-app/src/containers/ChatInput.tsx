@@ -197,6 +197,7 @@ const ChatInput = ({
     const out: Array<{
       id: string
       name: string
+      displayName: string
       path: string
       type: 'file' | 'folder'
     }> = []
@@ -206,6 +207,7 @@ const ChatInput = ({
         out.push({
           id: node.id,
           name: node.name,
+          displayName: node.displayName ?? node.name,
           path: node.relativePath,
           type: node.type,
         })
@@ -218,12 +220,24 @@ const ChatInput = ({
     return out
   }, [databaseEntries])
 
+  const dbIndex = useMemo(() => {
+    const map = new Map<string, { name: string; displayName: string; path: string }>()
+    flattenedDatabaseEntries.forEach((e) =>
+      map.set(e.id, { name: e.name, displayName: e.displayName, path: e.path })
+    )
+    return map
+  }, [flattenedDatabaseEntries])
+
   const mentionSuggestions = useMemo(() => {
     if (mentionStart === null || mentionQuery === undefined) return []
     const q = mentionQuery.trim().toLowerCase()
     const filtered = flattenedDatabaseEntries.filter((e) => {
       if (!q) return true
-      return e.name.toLowerCase().includes(q) || e.path.toLowerCase().includes(q)
+      return (
+        e.displayName.toLowerCase().includes(q) ||
+        e.name.toLowerCase().includes(q) ||
+        e.path.toLowerCase().includes(q)
+      )
     })
     return filtered.slice(0, 8)
   }, [flattenedDatabaseEntries, mentionQuery, mentionStart])
@@ -244,7 +258,7 @@ const ChatInput = ({
   }, [])
 
   const insertMentionToken = useCallback(
-    (id: string, name: string) => {
+    (id: string, label: string) => {
       const textarea = textareaRef.current
       if (!textarea) return
       const value = textarea.value
@@ -262,7 +276,7 @@ const ChatInput = ({
       setMentionStart(null)
       setMentionQuery('')
       setSelectedMentionIndex(0)
-      toast.success(`Added ${name} to prompt`)
+      toast.success(`Added ${label} to prompt`)
     },
     [mentionStart, setPrompt]
   )
@@ -1299,11 +1313,13 @@ const ChatInput = ({
                       )}
                       onMouseDown={(e) => {
                         e.preventDefault()
-                        insertMentionToken(s.id, s.name)
+                        insertMentionToken(s.id, s.displayName || s.name)
                       }}
                     >
                       <div className="flex flex-col items-start">
-                        <span className="text-sm text-main-view-fg">{s.name}</span>
+                        <span className="text-sm text-main-view-fg">
+                          {s.displayName || s.name}
+                        </span>
                         <span className="text-xs text-main-view-fg/60 truncate">/ {s.path}</span>
                       </div>
                     </button>
@@ -1439,19 +1455,27 @@ const ChatInput = ({
                 ) : (
                   (() => {
                     const nodes: (string | JSX.Element)[] = []
-                    const regex = /@db:[A-Za-z0-9_-]+/g
+                    const regex = /@db:([A-Za-z0-9_-]+)/g
                     let lastIndex = 0
                     let match: RegExpExecArray | null
                     while ((match = regex.exec(prompt)) !== null) {
                       if (match.index > lastIndex) {
                         nodes.push(prompt.slice(lastIndex, match.index))
                       }
+                      const id = match[1]
+                      const meta = id ? dbIndex.get(id) : undefined
+                      const label = meta?.displayName || meta?.name || match[0]
+                      const path =
+                        meta?.path && meta.path !== meta.name ? meta.path : undefined
                       nodes.push(
                         <span
                           key={`${match[0]}-${match.index}`}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-main-view-fg/10 border border-main-view-fg/20 text-xs font-mono text-main-view-fg"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-main-view-fg/10 border border-main-view-fg/20 text-xs text-main-view-fg"
                         >
-                          {match[0]}
+                          {label}
+                          {path ? (
+                            <span className="text-main-view-fg/70 text-[10px]">/ {path}</span>
+                          ) : null}
                         </span>
                       )
                       lastIndex = match.index + match[0].length
@@ -1533,7 +1557,7 @@ const ChatInput = ({
                       e.preventDefault()
                       const choice = mentionSuggestions[selectedMentionIndex]
                       if (choice) {
-                        insertMentionToken(choice.id, choice.name)
+                        insertMentionToken(choice.id, choice.displayName || choice.name)
                       }
                       return
                     }
@@ -1556,7 +1580,7 @@ const ChatInput = ({
                     if (mentionStart !== null && mentionSuggestions.length > 0) {
                       const choice = mentionSuggestions[selectedMentionIndex]
                       if (choice) {
-                        insertMentionToken(choice.id, choice.name)
+                        insertMentionToken(choice.id, choice.displayName || choice.name)
                       }
                       return
                     }

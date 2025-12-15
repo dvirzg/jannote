@@ -32,6 +32,7 @@ import TokenSpeedIndicator from '@/containers/TokenSpeedIndicator'
 import { useTranslation } from '@/i18n/react-i18next-compat'
 import { useModelProvider } from '@/hooks/useModelProvider'
 import { extractFilesFromPrompt } from '@/lib/fileMetadata'
+import { useDatabaseData } from '@/hooks/useDatabase'
 import { createImageAttachment } from '@/types/attachment'
 import {
   Dialog,
@@ -98,6 +99,56 @@ export const ThreadContent = memo(
     const [inlinePreview, setInlinePreview] = useState<
       { name: string; content: string } | null
     >(null)
+    const { entries: dbEntries } = useDatabaseData()
+
+    const dbIndex = useMemo(() => {
+      const map = new Map<string, { name: string; displayName?: string; path: string }>()
+      const walk = (nodes?: typeof dbEntries) => {
+        if (!nodes) return
+        for (const n of nodes) {
+          map.set(n.id, { name: n.name, displayName: n.displayName, path: n.relativePath })
+          if (n.children?.length) walk(n.children)
+        }
+      }
+      walk(dbEntries)
+      return map
+    }, [dbEntries])
+
+    const renderPromptWithDbTokens = useCallback(
+      (text: string) => {
+        const nodes: React.ReactNode[] = []
+        const regex = /@db:([A-Za-z0-9_-]+)/g
+        let lastIndex = 0
+        let match: RegExpExecArray | null
+        while ((match = regex.exec(text)) !== null) {
+          if (match.index > lastIndex) {
+            nodes.push(text.slice(lastIndex, match.index))
+          }
+          const id = match[1]
+          const meta = id ? dbIndex.get(id) : undefined
+          const labelName = meta?.displayName || meta?.name || match[0]
+          const labelPath =
+            meta?.path && meta.path !== (meta.displayName || meta.name) ? meta.path : undefined
+          nodes.push(
+            <span
+              key={`${match.index}-${id}`}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-main-view-fg/10 border border-main-view-fg/20 text-xs font-mono"
+            >
+              {labelName}
+              {labelPath ? (
+                <span className="text-main-view-fg/70 text-[10px]">{`/ ${labelPath}`}</span>
+              ) : null}
+            </span>
+          )
+          lastIndex = match.index + match[0].length
+        }
+        if (lastIndex < text.length) {
+          nodes.push(text.slice(lastIndex))
+        }
+        return nodes
+      },
+      [dbIndex]
+    )
 
     // Use useMemo to stabilize the components prop
     const linkComponents = useMemo(
@@ -259,12 +310,8 @@ export const ThreadContent = memo(
             {cleanPrompt && (
               <div className="flex justify-end w-full h-full text-start break-words whitespace-normal">
                 <div className="bg-main-view-fg/4 relative text-main-view-fg p-2 rounded-md inline-block max-w-[80%] ">
-                  <div className="select-text">
-                    <RenderMarkdown
-                      content={cleanPrompt}
-                      components={linkComponents}
-                      isUser
-                    />
+                  <div className="select-text text-sm leading-relaxed break-words whitespace-pre-wrap">
+                    {renderPromptWithDbTokens(cleanPrompt)}
                   </div>
                 </div>
               </div>

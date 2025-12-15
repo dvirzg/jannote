@@ -58,8 +58,7 @@ export const useDatabaseActions = () => {
     } finally {
       setLoading(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serviceHub])
+  }, [serviceHub, setEntries, setError, setLoading])
 
   const addPaths = useCallback(
     async (paths: string[], ingestionMode: DatabaseIngestionMode) => {
@@ -76,7 +75,25 @@ export const useDatabaseActions = () => {
       } finally {
         setLoading(false)
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [serviceHub, setEntries, setLoading]
+  )
+
+  const updateReferenceName = useCallback(
+    async (id: string, displayName: string) => {
+      if (!id || !displayName?.trim()) return
+      try {
+        setLoading(true)
+        const entries = await serviceHub.database().updateReferenceName(id, displayName.trim())
+        setEntries(entries)
+      } catch (e) {
+        console.error('Failed to update reference name', e)
+        toast.error('Failed to update reference name', {
+          description: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        setLoading(false)
+      }
     },
     [serviceHub]
   )
@@ -127,9 +144,8 @@ export const useDatabaseActions = () => {
           setLoading(false)
         }
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [serviceHub]
+    [serviceHub, setEntries, setLoading]
   )
 
   const createFolder = useCallback(
@@ -150,9 +166,8 @@ export const useDatabaseActions = () => {
       } finally {
         setLoading(false)
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [serviceHub]
+    [serviceHub, setEntries, setLoading]
   )
 
   const pickAndAddFolder = useCallback(
@@ -177,9 +192,8 @@ export const useDatabaseActions = () => {
       } finally {
         setLoading(false)
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [serviceHub]
+    [serviceHub, setEntries, setLoading]
   )
 
   const getEntryById = useCallback((id: string) => {
@@ -200,6 +214,7 @@ export const useDatabaseActions = () => {
     addPaths,
     pickAndAddFiles,
     pickAndAddFolder,
+    updateReferenceName,
     createFolder,
     deleteById,
     getEntryById,

@@ -191,6 +191,7 @@ export class TauriDatabaseService
       const folderEntry: RawIndexEntry = {
         id: ulid(),
         name,
+        displayName: name,
         path: targetPath,
         relativePath: destRelative,
         type: 'folder',
@@ -225,6 +226,7 @@ export class TauriDatabaseService
       const fileEntry: RawIndexEntry = {
         id: ulid(),
         name,
+        displayName: name,
         path: targetPath,
         relativePath: destRelative,
         type: 'file',
@@ -362,6 +364,7 @@ export class TauriDatabaseService
     const folderEntry: RawIndexEntry = {
       id: ulid(),
       name: folderRelativePath.split(/[\\/]/).pop() || baseName,
+      displayName: folderRelativePath.split(/[\\/]/).pop() || baseName,
       path: folderPath,
       relativePath: folderRelativePath,
       type: 'folder',
@@ -436,7 +439,7 @@ export class TauriDatabaseService
         seen.add(file.path)
         attachments.push(
           createDocumentAttachment({
-            name: file.name,
+            name: file.displayName ?? file.name,
             path: file.path,
             fileType: file.name.split('.').pop(),
             size: file.size,
@@ -447,5 +450,24 @@ export class TauriDatabaseService
     }
 
     return attachments
+  }
+
+  async updateReferenceName(id: string, displayName: string): Promise<DatabaseEntry[]> {
+    const trimmed = displayName.trim()
+    if (!trimmed) {
+      throw new Error('Display name is required')
+    }
+    const index = await this.readIndex()
+    const target = index.find((e) => e.id === id)
+    if (!target) {
+      throw new Error('Entry not found')
+    }
+    const updated = index.map((e) =>
+      e.id === id
+        ? { ...e, displayName: trimmed }
+        : e
+    )
+    await this.writeIndex(updated)
+    return this.buildTree(updated)
   }
 }

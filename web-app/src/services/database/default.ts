@@ -26,6 +26,11 @@ export class DefaultDatabaseService implements DatabaseService {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async updateReferenceName(_id: string, _displayName: string): Promise<DatabaseEntry[]> {
+    throw new Error('Database service not available on this platform')
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async deleteById(_id: string): Promise<void> {
     throw new Error('Database service not available on this platform')
   }
