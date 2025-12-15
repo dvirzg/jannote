@@ -51,6 +51,13 @@
     "appLogs": "App Logs",
     "appLogsDesc": "View detailed logs of the App."
   },
+  "database": {
+    "location": "Database Location",
+    "locationDesc": "",
+    "reveal": "Reveal Database Folder",
+    "revealError": "Failed to reveal database folder",
+    "changeLocationError": "Failed to change database location"
+  },
   "others": {
     "spellCheck": "Spell Check",
     "spellCheckDesc": "Enable spell check for your threads.",

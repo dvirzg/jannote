@@ -27,6 +27,7 @@ import { Route as SettingsHttpsProxyImport } from './routes/settings/https-proxy
 import { Route as SettingsHardwareImport } from './routes/settings/hardware'
 import { Route as SettingsGeneralImport } from './routes/settings/general'
 import { Route as SettingsExtensionsImport } from './routes/settings/extensions'
+import { Route as SettingsDatabaseImport } from './routes/settings/database'
 import { Route as SettingsAttachmentsImport } from './routes/settings/attachments'
 import { Route as SettingsAssistantImport } from './routes/settings/assistant'
 import { Route as ProjectProjectIdImport } from './routes/project/$projectId'
@@ -131,6 +132,12 @@ const SettingsGeneralRoute = SettingsGeneralImport.update({
 const SettingsExtensionsRoute = SettingsExtensionsImport.update({
   id: '/settings/extensions',
   path: '/settings/extensions',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const SettingsDatabaseRoute = SettingsDatabaseImport.update({
+  id: '/settings/database',
+  path: '/settings/database',
   getParentRoute: () => rootRoute,
 } as any)
 
@@ -248,6 +255,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/attachments'
       fullPath: '/settings/attachments'
       preLoaderRoute: typeof SettingsAttachmentsImport
+      parentRoute: typeof rootRoute
+    }
+    '/settings/database': {
+      id: '/settings/database'
+      path: '/settings/database'
+      fullPath: '/settings/database'
+      preLoaderRoute: typeof SettingsDatabaseImport
       parentRoute: typeof rootRoute
     }
     '/settings/extensions': {
@@ -370,6 +384,7 @@ export interface FileRoutesByFullPath {
   '/project/$projectId': typeof ProjectProjectIdRoute
   '/settings/assistant': typeof SettingsAssistantRoute
   '/settings/attachments': typeof SettingsAttachmentsRoute
+  '/settings/database': typeof SettingsDatabaseRoute
   '/settings/extensions': typeof SettingsExtensionsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/hardware': typeof SettingsHardwareRoute
@@ -397,6 +412,7 @@ export interface FileRoutesByTo {
   '/project/$projectId': typeof ProjectProjectIdRoute
   '/settings/assistant': typeof SettingsAssistantRoute
   '/settings/attachments': typeof SettingsAttachmentsRoute
+  '/settings/database': typeof SettingsDatabaseRoute
   '/settings/extensions': typeof SettingsExtensionsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/hardware': typeof SettingsHardwareRoute
@@ -425,6 +441,7 @@ export interface FileRoutesById {
   '/project/$projectId': typeof ProjectProjectIdRoute
   '/settings/assistant': typeof SettingsAssistantRoute
   '/settings/attachments': typeof SettingsAttachmentsRoute
+  '/settings/database': typeof SettingsDatabaseRoute
   '/settings/extensions': typeof SettingsExtensionsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/hardware': typeof SettingsHardwareRoute
@@ -454,6 +471,7 @@ export interface FileRouteTypes {
     | '/project/$projectId'
     | '/settings/assistant'
     | '/settings/attachments'
+    | '/settings/database'
     | '/settings/extensions'
     | '/settings/general'
     | '/settings/hardware'
@@ -480,6 +498,7 @@ export interface FileRouteTypes {
     | '/project/$projectId'
     | '/settings/assistant'
     | '/settings/attachments'
+    | '/settings/database'
     | '/settings/extensions'
     | '/settings/general'
     | '/settings/hardware'
@@ -506,6 +525,7 @@ export interface FileRouteTypes {
     | '/project/$projectId'
     | '/settings/assistant'
     | '/settings/attachments'
+    | '/settings/database'
     | '/settings/extensions'
     | '/settings/general'
     | '/settings/hardware'
@@ -534,6 +554,7 @@ export interface RootRouteChildren {
   ProjectProjectIdRoute: typeof ProjectProjectIdRoute
   SettingsAssistantRoute: typeof SettingsAssistantRoute
   SettingsAttachmentsRoute: typeof SettingsAttachmentsRoute
+  SettingsDatabaseRoute: typeof SettingsDatabaseRoute
   SettingsExtensionsRoute: typeof SettingsExtensionsRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsHardwareRoute: typeof SettingsHardwareRoute
@@ -561,6 +582,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProjectProjectIdRoute: ProjectProjectIdRoute,
   SettingsAssistantRoute: SettingsAssistantRoute,
   SettingsAttachmentsRoute: SettingsAttachmentsRoute,
+  SettingsDatabaseRoute: SettingsDatabaseRoute,
   SettingsExtensionsRoute: SettingsExtensionsRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsHardwareRoute: SettingsHardwareRoute,
@@ -597,6 +619,7 @@ export const routeTree = rootRoute
         "/project/$projectId",
         "/settings/assistant",
         "/settings/attachments",
+        "/settings/database",
         "/settings/extensions",
         "/settings/general",
         "/settings/hardware",
@@ -640,6 +663,9 @@ export const routeTree = rootRoute
     },
     "/settings/attachments": {
       "filePath": "settings/attachments.tsx"
+    },
+    "/settings/database": {
+      "filePath": "settings/database.tsx"
     },
     "/settings/extensions": {
       "filePath": "settings/extensions.tsx"

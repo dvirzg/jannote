@@ -23,6 +23,12 @@ const SettingsMenu = () => {
       isEnabled: true,
     },
     {
+      title: 'common:database.title',
+      route: route.settings.database,
+      hasSubMenu: false,
+      isEnabled: PlatformFeatures[PlatformFeature.SYSTEM_INTEGRATIONS],
+    },
+    {
       title: 'common:attachments',
       route: route.settings.attachments,
       hasSubMenu: false,

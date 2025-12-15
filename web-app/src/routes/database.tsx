@@ -22,7 +22,6 @@ import {
 import { route } from '@/constants/routes'
 import { Button } from '@/components/ui/button'
 import { useDatabaseActions, useDatabaseData } from '@/hooks/useDatabase'
-import { useServiceHub } from '@/hooks/useServiceHub'
 import type { DatabaseEntry } from '@/services/database/types'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/i18n'
@@ -220,8 +219,6 @@ function DatabasePage() {
   const { t } = useTranslation()
   const { entries, loading } = useDatabaseData()
   const { refresh, pickAndAddFiles, pickAndAddFolder, deleteById, getEntryById } = useDatabaseActions()
-  const serviceHub = useServiceHub()
-  const [rootPath, setRootPath] = useState<string>('')
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
   const [folderStack, setFolderStack] = useState<Array<{ id: string; name: string }>>([])
 
@@ -253,11 +250,6 @@ function DatabasePage() {
 
   useEffect(() => {
     refresh()
-    void serviceHub
-      .database()
-      .root()
-      .then(setRootPath)
-      .catch(() => setRootPath('~/Library/Application Support/Jan/database'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -304,12 +296,7 @@ function DatabasePage() {
       <div className="border-b border-main-view-fg/10 px-6 py-3 flex items-center justify-between relative z-10 bg-main-view">
         <div className="flex items-center gap-3">
           <IconDatabase size={20} className="text-main-view-fg/70" />
-          <div>
-            <div className="text-base font-semibold">{t('common:database.title')}</div>
-            <div className="text-xs text-main-view-fg/60 truncate max-w-md">
-              {rootPath || t('common:loading')}
-            </div>
-          </div>
+          <div className="text-base font-semibold">{t('common:database.title')}</div>
         </div>
         <div className="flex items-center gap-2 relative z-20">
           <Button 

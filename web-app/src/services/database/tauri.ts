@@ -37,12 +37,30 @@ export class TauriDatabaseService
   implements DatabaseService
 {
   private rootPath?: string
+  private async resolveDataFolder(): Promise<string> {
+    try {
+      const appConfiguration = await window.core?.api?.getAppConfigurations?.()
+      if (appConfiguration?.data_folder) {
+        return appConfiguration.data_folder
+      }
+    } catch (e) {
+      console.debug('Database data folder lookup failed', e)
+    }
+
+    const home = await homeDir()
+    return await join(home, 'Library', 'Application Support', 'Jan')
+  }
 
   private async ensureRoot(): Promise<string> {
     if (this.rootPath) return this.rootPath
-    const home = await homeDir()
-    const janRoot = await join(home, 'Library', 'Application Support', 'Jan')
-    const databaseRoot = await join(janRoot, DB_FOLDER_NAME)
+    const dataFolder = await this.resolveDataFolder()
+    const databaseRoot = await join(dataFolder, DB_FOLDER_NAME)
+
+    try {
+      await fs.mkdir(dataFolder)
+    } catch (e) {
+      console.debug('Database data folder mkdir skipped/failed', e)
+    }
 
     try {
       await fs.mkdir(databaseRoot)

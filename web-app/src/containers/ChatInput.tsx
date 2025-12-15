@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useThreads } from '@/hooks/useThreads'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { JSX } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -68,6 +69,7 @@ import {
   NEW_THREAD_ATTACHMENT_KEY,
   useChatAttachments,
 } from '@/hooks/useChatAttachments'
+import { useDatabaseActions, useDatabaseData } from '@/hooks/useDatabase'
 
 import {
   Attachment,
@@ -128,6 +130,9 @@ const ChatInput = ({
   const selectedProvider = useModelProvider((state) => state.selectedProvider)
   const sendMessage = useChat()
   const [message, setMessage] = useState('')
+  const [mentionStart, setMentionStart] = useState<number | null>(null)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
   const [dropdownToolsAvailable, setDropdownToolsAvailable] = useState(false)
   const [tooltipToolsAvailable, setTooltipToolsAvailable] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -179,6 +184,110 @@ const ChatInput = ({
   useEffect(() => {
     attachmentsKeyRef.current = attachmentsKey
   }, [attachmentsKey])
+
+  const { entries: databaseEntries } = useDatabaseData()
+  const { refresh: refreshDatabase } = useDatabaseActions()
+
+  useEffect(() => {
+    // Load database entries once to power mentions/autocomplete
+    void refreshDatabase()
+  }, [refreshDatabase])
+
+  const flattenedDatabaseEntries = useMemo(() => {
+    const out: Array<{
+      id: string
+      name: string
+      path: string
+      type: 'file' | 'folder'
+    }> = []
+    const walk = (nodes?: typeof databaseEntries) => {
+      if (!nodes) return
+      for (const node of nodes) {
+        out.push({
+          id: node.id,
+          name: node.name,
+          path: node.relativePath,
+          type: node.type,
+        })
+        if (node.children?.length) {
+          walk(node.children)
+        }
+      }
+    }
+    walk(databaseEntries)
+    return out
+  }, [databaseEntries])
+
+  const mentionSuggestions = useMemo(() => {
+    if (mentionStart === null || mentionQuery === undefined) return []
+    const q = mentionQuery.trim().toLowerCase()
+    const filtered = flattenedDatabaseEntries.filter((e) => {
+      if (!q) return true
+      return e.name.toLowerCase().includes(q) || e.path.toLowerCase().includes(q)
+    })
+    return filtered.slice(0, 8)
+  }, [flattenedDatabaseEntries, mentionQuery, mentionStart])
+
+  const findTokenRangeAt = useCallback((text: string, pos: number) => {
+    const regex = /@db:[A-Za-z0-9_-]+/g
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(text)) !== null) {
+      const start = match.index
+      const end = start + match[0].length
+      if (pos >= start && pos <= end) {
+        return { start, end, value: match[0] }
+      }
+    }
+    return null
+  }, [])
+
+  const insertMentionToken = useCallback(
+    (id: string, name: string) => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      const value = textarea.value
+      const selectionStart = textarea.selectionStart ?? value.length
+      const selectionEnd = textarea.selectionEnd ?? value.length
+      const start = mentionStart ?? selectionStart
+      const token = `@db:${id}`
+      const nextValue = `${value.slice(0, start)}${token} ${value.slice(selectionEnd)}`
+      setPrompt(nextValue)
+      requestAnimationFrame(() => {
+        const pos = start + token.length + 1
+        textarea.setSelectionRange(pos, pos)
+        textarea.focus()
+      })
+      setMentionStart(null)
+      setMentionQuery('')
+      setSelectedMentionIndex(0)
+      toast.success(`Added ${name} to prompt`)
+    },
+    [mentionStart, setPrompt]
+  )
+
+  const handleTokenAwareBackspace = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      const value = textarea.value
+      const caret = textarea.selectionStart ?? value.length
+      if (textarea.selectionStart !== textarea.selectionEnd) return
+      const checkPos = e.key === 'Backspace' ? caret - 1 : caret
+      if (checkPos < 0) return
+      const token = findTokenRangeAt(value, checkPos)
+      if (token) {
+        e.preventDefault()
+        const nextValue = value.slice(0, token.start) + value.slice(token.end)
+        setPrompt(nextValue)
+        requestAnimationFrame(() => {
+          const pos = token.start
+          textarea.setSelectionRange(pos, pos)
+          textarea.focus()
+        })
+      }
+    },
+    [findTokenRangeAt, setPrompt]
+  )
 
   const ingestingDocs = attachments.some(
     (a) => a.type === 'document' && a.processing
@@ -272,23 +381,21 @@ const ChatInput = ({
       setMessage('Please select a model to start chatting.')
       return
     }
-    const { cleanText, attachments: dbAttachments } = await (async () => {
+    const { attachments: dbAttachments } = await (async () => {
       const regex = /@db:([A-Za-z0-9_-]+)/g
       const ids = new Set<string>()
-      const cleaned = prompt.replace(regex, (_match, id) => {
-        if (typeof id === 'string' && id.length > 0) {
-          ids.add(id)
-        }
-        return ''
-      })
-      if (ids.size === 0) return { cleanText: prompt, attachments: [] as Attachment[] }
+      let match: RegExpExecArray | null
+      while ((match = regex.exec(prompt)) !== null) {
+        if (match[1]) ids.add(match[1])
+      }
+      if (ids.size === 0) return { attachments: [] as Attachment[] }
       try {
         const fromDb = await serviceHub.database().toAttachments(Array.from(ids))
-        return { cleanText: cleaned, attachments: fromDb }
+        return { attachments: fromDb }
       } catch (e) {
         console.error('Failed to resolve database mentions', e)
         toast.error('Failed to load database references')
-        return { cleanText: prompt, attachments: [] as Attachment[] }
+        return { attachments: [] as Attachment[] }
       }
     })()
 
@@ -307,10 +414,10 @@ const ChatInput = ({
       return merged
     })()
 
-    if (!cleanText.trim() && combinedAttachments.length === 0) {
+    if (!prompt.trim() && combinedAttachments.length === 0) {
       return
     }
-    const outboundMessage = cleanText.trim()
+    const outboundMessage = prompt.trim()
 
     if (ingestingAny) {
       toast.info('Please wait for attachments to finish processing')
@@ -1172,6 +1279,32 @@ const ChatInput = ({
             </div>
           )}
 
+          {mentionStart !== null && mentionSuggestions.length > 0 && (
+            <div className="mt-2 px-4">
+              <div className="rounded-lg border border-main-view-fg/10 bg-main-view shadow-lg overflow-hidden">
+                {mentionSuggestions.map((s, idx) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className={cn(
+                      'w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-main-view-fg/5',
+                      idx === selectedMentionIndex && 'bg-main-view-fg/5'
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      insertMentionToken(s.id, s.name)
+                    }}
+                  >
+                    <div className="flex flex-col items-start">
+                      <span className="text-sm text-main-view-fg">{s.name}</span>
+                      <span className="text-xs text-main-view-fg/60 truncate">/ {s.path}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div
             className={cn(
               'relative z-20 px-0 pb-10 border border-main-view-fg/5 rounded-lg text-main-view-fg bg-main-view',
@@ -1286,48 +1419,163 @@ const ChatInput = ({
 
               </div>
             )}
-            <TextareaAutosize
-              ref={textareaRef}
-              minRows={2}
-              rows={1}
-              maxRows={10}
-              value={prompt}
-              data-testid={'chat-input'}
-              onChange={(e) => {
-                setPrompt(e.target.value)
-                // Count the number of newlines to estimate rows
-                const newRows = (e.target.value.match(/\n/g) || []).length + 1
-                setRows(Math.min(newRows, maxRows))
-              }}
-              onKeyDown={(e) => {
-                // e.keyCode 229 is for IME input with Safari
-                const isComposing =
-                  e.nativeEvent.isComposing || e.keyCode === 229
-                if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
-                  e.preventDefault()
-                  // Submit prompt when the following conditions are met:
-                  // - Enter is pressed without Shift
-                  // - The streaming content has finished
-                  // - Prompt is not empty
-                  if (!streamingContent && prompt.trim() && !ingestingAny) {
-                    handleSendMessage(prompt)
+            <div className="relative w-full">
+              <div
+                className={cn(
+                  'pointer-events-none absolute inset-0 whitespace-pre-wrap break-words px-4 pt-4 pb-2 text-sm leading-[1.4] text-main-view-fg',
+                  prompt.length === 0 && 'text-main-view-fg/60'
+                )}
+              >
+                {prompt.length === 0 ? (
+                  t('common:placeholder.chatInput')
+                ) : (
+                  (() => {
+                    const nodes: (string | JSX.Element)[] = []
+                    const regex = /@db:[A-Za-z0-9_-]+/g
+                    let lastIndex = 0
+                    let match: RegExpExecArray | null
+                    while ((match = regex.exec(prompt)) !== null) {
+                      if (match.index > lastIndex) {
+                        nodes.push(prompt.slice(lastIndex, match.index))
+                      }
+                      nodes.push(
+                        <span
+                          key={`${match[0]}-${match.index}`}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-main-view-fg/10 border border-main-view-fg/20 text-xs font-mono text-main-view-fg"
+                        >
+                          {match[0]}
+                        </span>
+                      )
+                      lastIndex = match.index + match[0].length
+                    }
+                    if (lastIndex < prompt.length) {
+                      nodes.push(prompt.slice(lastIndex))
+                    }
+                    return nodes
+                  })()
+                )}
+              </div>
+              <TextareaAutosize
+                ref={textareaRef}
+                minRows={2}
+                rows={1}
+                maxRows={10}
+                value={prompt}
+                data-testid={'chat-input'}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setPrompt(val)
+                  const caret = e.target.selectionStart ?? val.length
+                  const trigger = val.lastIndexOf('@', caret - 1)
+                  if (trigger >= 0) {
+                    const nextSpace = val.indexOf(' ', trigger + 1)
+                    if (nextSpace === -1 || nextSpace >= caret) {
+                      setMentionStart(trigger)
+                      setMentionQuery(val.slice(trigger + 1, caret))
+                      setSelectedMentionIndex(0)
+                    } else {
+                      setMentionStart(null)
+                      setMentionQuery('')
+                    }
+                  } else {
+                    setMentionStart(null)
+                    setMentionQuery('')
                   }
-                  // When Shift+Enter is pressed, a new line is added (default behavior)
-                }
-              }}
-              onPaste={handlePaste}
-              placeholder={t('common:placeholder.chatInput')}
-              autoFocus
-              spellCheck={spellCheckChatInput}
-              data-gramm={spellCheckChatInput}
-              data-gramm_editor={spellCheckChatInput}
-              data-gramm_grammarly={spellCheckChatInput}
-              className={cn(
-                'bg-transparent pt-4 w-full flex-shrink-0 border-none resize-none outline-0 px-4',
-                rows < maxRows && 'scrollbar-hide',
-                className
-              )}
-            />
+                  // Count the number of newlines to estimate rows
+                  const newRows = (val.match(/\n/g) || []).length + 1
+                  setRows(Math.min(newRows, maxRows))
+                }}
+                onClick={(e) => {
+                  const target = e.target as HTMLTextAreaElement
+                  const caret = target.selectionStart ?? 0
+                  const val = target.value
+                  const trigger = val.lastIndexOf('@', caret - 1)
+                  if (trigger >= 0) {
+                    const nextSpace = val.indexOf(' ', trigger + 1)
+                    if (nextSpace === -1 || nextSpace >= caret) {
+                      setMentionStart(trigger)
+                      setMentionQuery(val.slice(trigger + 1, caret))
+                    } else {
+                      setMentionStart(null)
+                      setMentionQuery('')
+                    }
+                  } else {
+                    setMentionStart(null)
+                    setMentionQuery('')
+                  }
+                }}
+                onKeyDown={(e) => {
+                  // Mention navigation
+                  if (mentionStart !== null && mentionSuggestions.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setSelectedMentionIndex((prev) =>
+                        (prev + 1) % mentionSuggestions.length
+                      )
+                      return
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      setSelectedMentionIndex((prev) =>
+                        (prev - 1 + mentionSuggestions.length) % mentionSuggestions.length
+                      )
+                      return
+                    }
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      const choice = mentionSuggestions[selectedMentionIndex]
+                      if (choice) {
+                        insertMentionToken(choice.id, choice.name)
+                      }
+                      return
+                    }
+                    if (e.key === 'Escape') {
+                      setMentionStart(null)
+                      setMentionQuery('')
+                      return
+                    }
+                  }
+
+                  if (e.key === 'Backspace' || e.key === 'Delete') {
+                    handleTokenAwareBackspace(e)
+                  }
+
+                  // e.keyCode 229 is for IME input with Safari
+                  const isComposing =
+                    e.nativeEvent.isComposing || e.keyCode === 229
+                  if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
+                    e.preventDefault()
+                    if (mentionStart !== null && mentionSuggestions.length > 0) {
+                      const choice = mentionSuggestions[selectedMentionIndex]
+                      if (choice) {
+                        insertMentionToken(choice.id, choice.name)
+                      }
+                      return
+                    }
+                    // Submit prompt when the following conditions are met:
+                    // - Enter is pressed without Shift
+                    // - The streaming content has finished
+                    // - Prompt is not empty
+                    if (!streamingContent && prompt.trim() && !ingestingAny) {
+                      handleSendMessage(prompt)
+                    }
+                    // When Shift+Enter is pressed, a new line is added (default behavior)
+                  }
+                }}
+                onPaste={handlePaste}
+                placeholder={t('common:placeholder.chatInput')}
+                autoFocus
+                spellCheck={spellCheckChatInput}
+                data-gramm={spellCheckChatInput}
+                data-gramm_editor={spellCheckChatInput}
+                data-gramm_grammarly={spellCheckChatInput}
+                className={cn(
+                  'bg-transparent pt-4 w-full flex-shrink-0 border-none resize-none outline-0 px-4 text-transparent caret-main-view-fg',
+                  rows < maxRows && 'scrollbar-hide',
+                  className
+                )}
+              />
+            </div>
           </div>
         </div>
 
