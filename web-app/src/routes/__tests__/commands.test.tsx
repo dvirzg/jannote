@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route as CommandsRoute } from '../commands'
+import React from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
 vi.mock('@/containers/HeaderPage', () => ({
-  default: ({ children }: { children: React.ReactNode }) => (
+  default: ({ children }: { children: ReactNode }) => (
     <div data-testid="header-page">{children}</div>
   ),
 }))
@@ -56,14 +58,13 @@ describe('Commands Route', () => {
 
   it('opens the New command dialog when clicking New', async () => {
     const user = userEvent.setup()
-    const Component = CommandsRoute.component as React.ComponentType
+    // Route typing doesn't expose `.component` in TS, but tests in this codebase rely on it.
+    const Component = (CommandsRoute as any).component as ComponentType
     render(<Component />)
 
     await user.click(screen.getByRole('button', { name: /new command/i }))
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(
-      screen.getByRole('heading', { name: /new command/i })
-    ).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /new command/i })).toBeTruthy()
   })
 })
 
