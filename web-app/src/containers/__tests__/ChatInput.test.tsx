@@ -2,14 +2,9 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { RouterProvider, createRouter, createRootRoute, createMemoryHistory } from '@tanstack/react-router'
+import React from 'react'
+import '@testing-library/jest-dom'
 import ChatInput from '../ChatInput'
-import { usePrompt } from '@/hooks/usePrompt'
-import { useThreads } from '@/hooks/useThreads'
-import { useAppState } from '@/hooks/useAppState'
-import { useGeneralSetting } from '@/hooks/useGeneralSetting'
-import { useModelProvider } from '@/hooks/useModelProvider'
-import { useChat } from '@/hooks/useChat'
-import type { ThreadModel } from '@/types/threads'
 
 // Mock dependencies with mutable state
 let mockPromptState = {
@@ -534,5 +529,121 @@ describe('ChatInput', () => {
     await act(async () => {
       expect(() => renderWithRouter()).not.toThrow()
     })
+  })
+
+  it('shows command autocomplete and argument help when typing "/"', async () => {
+    const user = userEvent.setup()
+
+    mockCommandsState.commands = [
+      {
+        id: '1',
+        name: 'weather',
+        template: 'Tell me the weather in {place}, in {unit}',
+        args: [
+          { name: 'place', defaultValue: 'NYC' },
+          { name: 'unit', defaultValue: 'C' },
+        ],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: '2',
+        name: 'summarize',
+        template: 'Summarize: {text}',
+        args: [{ name: 'text' }],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ]
+
+    // Make the mock prompt store behave like a controlled input.
+    mockPromptState.setPrompt = vi.fn((val: string) => {
+      mockPromptState.prompt = val
+    })
+
+    await act(async () => {
+      renderWithRouter()
+    })
+
+    const textarea = screen.getByTestId('chat-input')
+
+    await act(async () => {
+      await user.click(textarea)
+      await user.type(textarea, '/w')
+    })
+
+    expect(screen.getByTestId('command-autocomplete')).toBeInTheDocument()
+    // Compact list shows the command signature inline (name + args)
+    expect(screen.getByText('/weather(place, unit)')).toBeInTheDocument()
+    // Template description is shown as a subtle secondary line
+    expect(
+      screen.getByText('Tell me the weather in {place}, in {unit}')
+    ).toBeInTheDocument()
+  })
+
+  it('inserts the selected command on Tab', async () => {
+    const user = userEvent.setup()
+
+    mockCommandsState.commands = [
+      {
+        id: '1',
+        name: 'weather',
+        template: 'Tell me the weather in {place}, in {unit}',
+        args: [
+          { name: 'place', defaultValue: 'NYC' },
+          { name: 'unit', defaultValue: 'C' },
+        ],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ]
+
+    mockPromptState.setPrompt = vi.fn((val: string) => {
+      mockPromptState.prompt = val
+    })
+
+    await act(async () => {
+      renderWithRouter()
+    })
+
+    const textarea = screen.getByTestId('chat-input') as HTMLTextAreaElement
+
+    await act(async () => {
+      await user.click(textarea)
+      await user.type(textarea, '/w')
+    })
+
+    expect(screen.getByTestId('command-autocomplete')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+    })
+
+    // Tab should insert invocation start and keep the helper open in args-mode
+    expect(textarea.value).toBe('/weather(')
+    expect(screen.getByTestId('command-autocomplete')).toBeInTheDocument()
+    // Args-only helper (no function name/signature) – single inline summary
+    const summary = screen.getByTestId('command-args-summary')
+    expect(summary.textContent).toContain('place:NYC, unit:C')
+    expect(screen.queryByText('/weather(place, unit)')).not.toBeInTheDocument()
+
+    // Next Tab should fill the first arg default and advance to the next arg (inserting ", ")
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+    })
+    expect(textarea.value).toBe('/weather(NYC, ')
+
+    // Next Tab should fill the second arg default
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+    })
+    expect(textarea.value).toBe('/weather(NYC, C')
+
+    // After finishing all args, Tab should close the invocation with ")"
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+    })
+    expect(textarea.value).toBe('/weather(NYC, C)')
+    expect(screen.queryByTestId('command-autocomplete')).not.toBeInTheDocument()
   })
 })

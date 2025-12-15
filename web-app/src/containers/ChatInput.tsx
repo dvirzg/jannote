@@ -137,6 +137,12 @@ const ChatInput = ({
   const [mentionStart, setMentionStart] = useState<number | null>(null)
   const [mentionQuery, setMentionQuery] = useState('')
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
+  const [commandStart, setCommandStart] = useState<number | null>(null)
+  const [commandQuery, setCommandQuery] = useState('')
+  const [commandInArgs, setCommandInArgs] = useState(false)
+  const [commandArgIndex, setCommandArgIndex] = useState(0)
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
+  const commandArgIndexRef = useRef(0)
   const [mentionMap, setMentionMap] = useState<Record<
     string,
     { id: string; displayName: string; path?: string }
@@ -251,6 +257,466 @@ const ChatInput = ({
   }, [flattenedDatabaseEntries, mentionQuery, mentionStart])
 
   const mentionVisible = mentionStart !== null
+
+  const commandVisible = commandStart !== null
+
+  const commandSuggestions = useMemo(() => {
+    if (!commandVisible || commandInArgs) return []
+    const q = commandQuery.trim().toLowerCase()
+    const filtered = q
+      ? commands.filter((c) => c.name.toLowerCase().startsWith(q))
+      : commands
+    // Keep this list intentionally small so the UI stays lightweight.
+    return [...filtered].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 10)
+  }, [commandVisible, commandInArgs, commandQuery, commands])
+
+  const formatCommandSignature = useCallback(
+    (c: { name: string; args: Array<{ name: string }> }) => {
+      const args = c.args?.length ? `(${c.args.map((a) => a.name).join(', ')})` : ''
+      return `/${c.name}${args}`
+    },
+    []
+  )
+
+  const selectedCommand = useMemo(() => {
+    if (commandInArgs) {
+      const q = commandQuery.trim().toLowerCase()
+      return commands.find((c) => c.name.toLowerCase() === q)
+    }
+    return commandSuggestions[selectedCommandIndex] ?? null
+  }, [commandInArgs, commandQuery, commands, commandSuggestions, selectedCommandIndex])
+
+  const closeCommandAutocomplete = useCallback(() => {
+    setCommandStart(null)
+    setCommandQuery('')
+    setCommandInArgs(false)
+    setCommandArgIndex(0)
+    commandArgIndexRef.current = 0
+    setSelectedCommandIndex(0)
+  }, [])
+
+  useEffect(() => {
+    commandArgIndexRef.current = commandArgIndex
+  }, [commandArgIndex])
+
+  const detectCommandContext = useCallback((val: string, caret: number) => {
+    const from = Math.min(val.length - 1, Math.max(0, caret - 1))
+    const trigger = val.lastIndexOf('/', from)
+    if (trigger < 0) return null
+
+    const prev = trigger > 0 ? val[trigger - 1] : ''
+    const next = trigger + 1 < val.length ? val[trigger + 1] : ''
+    // Guard against URLs (e.g. http://...) and comment-like patterns (//)
+    if (prev === ':' || prev === '/' || next === '/') return null
+    // Ensure slash starts a token
+    if (trigger > 0 && !/\s/.test(prev)) return null
+
+    // Parse name (allow whitespace only AFTER the name, before '(')
+    const safeCaret = Math.max(caret, trigger + 1)
+    let i = trigger + 1
+    // Allow "/" alone to open command autocomplete (empty query).
+    if (i >= val.length) {
+      return { trigger, namePart: '', inArgs: false, argIndex: 0 }
+    }
+    // If the user just typed "/" and caret isn't reliable, treat as empty query.
+    if (!/[A-Za-z]/.test(val[i])) {
+      if (safeCaret <= i) return { trigger, namePart: '', inArgs: false, argIndex: 0 }
+      return null
+    }
+    const nameStart = i
+    while (i < val.length && /[A-Za-z0-9_-]/.test(val[i])) i++
+    const name = val.slice(nameStart, i)
+
+    // If caret is still in the name typing region, behave like name autocomplete.
+    if (safeCaret <= nameStart) {
+      // "/"" typed but caret isn't reliable; treat as empty query (show all commands)
+      return { trigger, namePart: '', inArgs: false, argIndex: 0 }
+    }
+    if (safeCaret <= i) {
+      const typed = val.slice(nameStart, safeCaret)
+      if (typed.length > 0 && !/^[A-Za-z0-9_-]+$/.test(typed)) return null
+      return { trigger, namePart: typed, inArgs: false, argIndex: 0 }
+    }
+
+    // Skip whitespace between name and '(' (spaces shouldn't affect args mode)
+    let j = i
+    while (j < val.length && /\s/.test(val[j])) j++
+    const openParenPos = j < val.length && val[j] === '(' ? j : -1
+
+    if (openParenPos === -1 || openParenPos >= safeCaret) {
+      // Not inside args yet; allow name autocomplete only if there's no whitespace in the typed token.
+      const typed = val.slice(trigger + 1, safeCaret)
+      if (/\s/.test(typed)) return null
+      if (typed.length > 0 && !/^[A-Za-z0-9_-]+$/.test(typed)) return null
+      return { trigger, namePart: typed.trim(), inArgs: false, argIndex: 0 }
+    }
+
+    // We're past "name(" so we may be inside args. Determine comma positions and whether args are closed.
+    let inSingle = false
+    let inDouble = false
+    let escaping = false
+    let depth = 1
+    const commaPositions: number[] = []
+    let closeParenPos: number | null = null
+
+    for (let k = openParenPos + 1; k < val.length; k++) {
+      const ch = val[k]
+      if (escaping) {
+        escaping = false
+        continue
+      }
+      if (ch === '\\') {
+        escaping = true
+        continue
+      }
+
+      if (!inDouble && ch === "'") {
+        inSingle = !inSingle
+        continue
+      }
+      if (!inSingle && ch === '"') {
+        inDouble = !inDouble
+        continue
+      }
+      if (inSingle || inDouble) continue
+
+      if (ch === '(') {
+        depth++
+        continue
+      }
+      if (ch === ')') {
+        depth--
+        if (depth === 0) {
+          closeParenPos = k
+          break
+        }
+        continue
+      }
+      if (ch === ',' && depth === 1) {
+        commaPositions.push(k)
+      }
+    }
+
+    // Only exit args mode when a real (unquoted) ')' has been completed.
+    if (closeParenPos !== null && closeParenPos < safeCaret) return null
+
+    // Arg index is number of top-level commas before the caret (ignoring commas in quotes).
+    let argIndex = 0
+    for (const pos of commaPositions) {
+      if (pos < safeCaret) argIndex++
+      else break
+    }
+
+    return { trigger, namePart: name, inArgs: true, argIndex }
+  }, [])
+
+  const insertCommandName = useCallback(
+    (name: string) => {
+      const textarea =
+        textareaRef.current ??
+        (document.activeElement instanceof HTMLTextAreaElement
+          ? document.activeElement
+          : null)
+      if (!textarea) return
+      const value = textarea.value
+      const start = commandStart
+      if (start === null) return
+
+      const caret = textarea.selectionStart ?? value.length
+
+      // Replace the currently typed prefix (e.g. "/wea") with the selected command name.
+      const before = value.slice(0, start + 1)
+      const after = value.slice(caret)
+      const nextValue = `${before}${name}${after}`
+      setPrompt(nextValue)
+
+      // Place caret at the end of the inserted command name
+      requestAnimationFrame(() => {
+        const nextCaret = start + 1 + name.length
+        textarea.setSelectionRange(nextCaret, nextCaret)
+      })
+
+      closeCommandAutocomplete()
+    },
+    [closeCommandAutocomplete, commandStart, setPrompt]
+  )
+
+  const insertCommandInvocationStart = useCallback(
+    (c: { name: string; args: Array<{ name: string }> }) => {
+      const textarea =
+        textareaRef.current ??
+        (document.activeElement instanceof HTMLTextAreaElement
+          ? document.activeElement
+          : null)
+      if (!textarea) return
+      const value = textarea.value
+      const start = commandStart
+      if (start === null) return
+
+      const caret = textarea.selectionStart ?? value.length
+
+      const hasArgs = Boolean(c.args?.length)
+      const insertion = hasArgs ? `${c.name}(` : c.name
+
+      // Replace the currently typed prefix (e.g. "/wea") with the selected command invocation start.
+      const before = value.slice(0, start + 1)
+      const after = value.slice(caret)
+      const nextValue = `${before}${insertion}${after}`
+      setPrompt(nextValue)
+
+      // Set caret immediately so successive Tab presses work reliably.
+      const immediateCaret = start + 1 + insertion.length
+      try {
+        textarea.setSelectionRange(immediateCaret, immediateCaret)
+      } catch {
+        // ignore
+      }
+      requestAnimationFrame(() => {
+        const nextCaret = start + 1 + insertion.length
+        // Make caret movement immediate (RAF is kept as a fallback)
+        try {
+          textarea.setSelectionRange(nextCaret, nextCaret)
+        } catch {
+          // ignore
+        }
+        textarea.setSelectionRange(nextCaret, nextCaret)
+      })
+
+      if (hasArgs) {
+        // Keep the helper open and switch to "args mode"
+        setCommandStart(start)
+        setCommandQuery(c.name)
+        setCommandInArgs(true)
+        setCommandArgIndex(0)
+        commandArgIndexRef.current = 0
+        setSelectedCommandIndex(0)
+      } else {
+        closeCommandAutocomplete()
+      }
+    },
+    [closeCommandAutocomplete, commandStart, setPrompt]
+  )
+
+  const tabFillDefaultArg = useCallback(
+    (c: { name: string; args: Array<{ name: string; defaultValue?: string }> }) => {
+      const textarea =
+        textareaRef.current ??
+        (document.activeElement instanceof HTMLTextAreaElement
+          ? document.activeElement
+          : null)
+      if (!textarea) return
+
+      const value = textarea.value
+      const trigger = commandStart
+      if (trigger === null) return
+
+      // After the last arg is filled, Tab should close with ')'
+      if (commandArgIndexRef.current >= c.args.length && c.args.length > 0) {
+        const caret = textarea.selectionStart ?? value.length
+        // If there's already a real closing paren, just jump past it.
+        const open = value.indexOf('(', trigger + 1)
+        if (open >= 0) {
+          let inS = false
+          let inD = false
+          let esc = false
+          let d = 1
+          for (let k = open + 1; k < value.length; k++) {
+            const ch = value[k]
+            if (esc) {
+              esc = false
+              continue
+            }
+            if (ch === '\\') {
+              esc = true
+              continue
+            }
+            if (!inD && ch === "'") {
+              inS = !inS
+              continue
+            }
+            if (!inS && ch === '"') {
+              inD = !inD
+              continue
+            }
+            if (inS || inD) continue
+            if (ch === '(') d++
+            if (ch === ')') {
+              d--
+              if (d === 0) {
+                const pos = k + 1
+                try {
+                  textarea.setSelectionRange(pos, pos)
+                } catch {
+                  // ignore
+                }
+                closeCommandAutocomplete()
+                return
+              }
+            }
+          }
+        }
+
+        // Insert ')' at the caret (end of last arg)
+        const insertPos = caret
+        const nextValue = value.slice(0, insertPos) + ')' + value.slice(insertPos)
+        setPrompt(nextValue)
+        const nextCaret = insertPos + 1
+        try {
+          textarea.setSelectionRange(nextCaret, nextCaret)
+        } catch {
+          // ignore
+        }
+        closeCommandAutocomplete()
+        return
+      }
+
+      const caret = textarea.selectionStart ?? value.length
+      const ctx = detectCommandContext(value, caret)
+      if (!ctx || !ctx.inArgs) return
+
+      const argIndex = Math.max(
+        0,
+        Math.min(commandArgIndexRef.current, c.args.length - 1)
+      )
+
+      // Find the matching "(" for this command (allow whitespace after name)
+      const idxFromTrigger = value.indexOf('(', trigger + 1)
+      if (idxFromTrigger < 0) return
+      const openParenPos = idxFromTrigger
+
+      // Quote-aware scan for commas and a real closing paren.
+      let inSingle = false
+      let inDouble = false
+      let escaping = false
+      let depth = 1
+      const commaPositions: number[] = []
+      let closeParenPos: number | null = null
+
+      for (let k = openParenPos + 1; k < value.length; k++) {
+        const ch = value[k]
+        if (escaping) {
+          escaping = false
+          continue
+        }
+        if (ch === '\\') {
+          escaping = true
+          continue
+        }
+
+        if (!inDouble && ch === "'") {
+          inSingle = !inSingle
+          continue
+        }
+        if (!inSingle && ch === '"') {
+          inDouble = !inDouble
+          continue
+        }
+        if (inSingle || inDouble) continue
+
+        if (ch === '(') {
+          depth++
+          continue
+        }
+        if (ch === ')') {
+          depth--
+          if (depth === 0) {
+            closeParenPos = k
+            break
+          }
+          continue
+        }
+        if (ch === ',' && depth === 1) commaPositions.push(k)
+      }
+
+      const leftBoundary =
+        argIndex === 0 ? openParenPos + 1 : (commaPositions[argIndex - 1] ?? openParenPos) + 1
+      const rightBoundary =
+        commaPositions[argIndex] ??
+        closeParenPos ??
+        value.length
+
+      // Replace the entire segment (spaces don't matter)
+      let segStart = leftBoundary
+      let segEnd = rightBoundary
+      while (segStart < segEnd && /\s/.test(value[segStart])) segStart++
+      while (segEnd > segStart && /\s/.test(value[segEnd - 1])) segEnd--
+
+      const currentText = value.slice(segStart, segEnd)
+      const currentTrim = currentText.trim()
+      const def = (c.args[argIndex]?.defaultValue ?? '').trim()
+
+      let replacement: string | null = null
+      if (def) {
+        if (currentTrim.length === 0) replacement = def
+        else if (def.toLowerCase().startsWith(currentTrim.toLowerCase()))
+          replacement = def
+      }
+
+      // Apply replacement (or just advance) and ensure ", " between args
+      let nextValue = value
+      let nextCaret = segEnd
+
+      if (replacement !== null) {
+        nextValue = value.slice(0, segStart) + replacement + value.slice(segEnd)
+        nextCaret = segStart + replacement.length
+      }
+
+      const isLast = argIndex >= c.args.length - 1
+      if (!isLast) {
+        // Insert ", " if needed at the end of this arg segment (before any ')' or existing comma)
+        const afterChar = nextValue[nextCaret] ?? ''
+        // If we're currently before a ')' (or end), add comma-space. If before comma, normalize to comma-space.
+        if (afterChar === ',') {
+          // ensure exactly ", "
+          if (nextValue[nextCaret + 1] !== ' ') {
+            nextValue = nextValue.slice(0, nextCaret + 1) + ' ' + nextValue.slice(nextCaret + 1)
+          }
+          nextCaret = nextCaret + 2
+        } else if (afterChar === ')' || afterChar === '' || afterChar === '\n') {
+          nextValue = nextValue.slice(0, nextCaret) + ', ' + nextValue.slice(nextCaret)
+          nextCaret = nextCaret + 2
+        } else {
+          // If user is mid-text, move caret to next comma boundary if present; otherwise insert ", "
+          const nextComma = nextValue.indexOf(',', nextCaret)
+          const nextParen = nextValue.indexOf(')', nextCaret)
+          if (nextComma !== -1 && (nextParen === -1 || nextComma < nextParen)) {
+            nextCaret = nextComma + (nextValue[nextComma + 1] === ' ' ? 2 : 1)
+          } else {
+            nextValue = nextValue.slice(0, nextCaret) + ', ' + nextValue.slice(nextCaret)
+            nextCaret = nextCaret + 2
+          }
+        }
+      }
+
+      setPrompt(nextValue)
+
+      // Make caret movement immediate (RAF is kept as a fallback)
+      try {
+        textarea.setSelectionRange(nextCaret, nextCaret)
+      } catch {
+        // ignore
+      }
+      requestAnimationFrame(() => {
+        textarea.setSelectionRange(nextCaret, nextCaret)
+      })
+
+      if (isLast) {
+        // Don't auto-close on the same Tab that fills the last arg.
+        // The *next* Tab closes with ')'.
+        setCommandArgIndex(c.args.length)
+        commandArgIndexRef.current = c.args.length
+        setSelectedCommandIndex(0)
+        return
+      }
+
+      // Update helper highlight to the next arg after we advance
+      const nextArgIndex = argIndex + 1
+      setCommandArgIndex(nextArgIndex)
+      commandArgIndexRef.current = nextArgIndex
+      setSelectedCommandIndex(0)
+    },
+    [closeCommandAutocomplete, commandStart, detectCommandContext, setPrompt]
+  )
 
   const findTokenRangeAt = useCallback((text: string, pos: number) => {
     const regex = /@(db:[A-Za-z0-9_-]+|ref:[A-Za-z0-9_-]+)/g
@@ -1407,6 +1873,97 @@ const ChatInput = ({
             </div>
           )}
 
+          {!mentionVisible && commandVisible && (
+            <div className="mt-2 px-4" data-testid="command-autocomplete">
+              <div className="rounded-lg border border-main-view-fg/10 bg-main-view shadow-lg overflow-hidden">
+                {commands.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-main-view-fg/60">
+                    No commands defined yet
+                  </div>
+                ) : commandInArgs ? (
+                  selectedCommand ? (
+                    <div className="p-3">
+                      {selectedCommand.args.length > 0 ? (
+                        <div
+                          className="text-[11px] font-mono text-main-view-fg/60"
+                          data-testid="command-args-summary"
+                        >
+                          {selectedCommand.args.map((a, idx) => {
+                            const isActive = idx === commandArgIndex
+                            const suffix =
+                              a.defaultValue !== undefined && a.defaultValue !== ''
+                                ? a.defaultValue
+                                : ''
+                            return (
+                              <span key={a.name}>
+                                <span
+                                  className={cn(
+                                    isActive && 'text-main-view-fg underline'
+                                  )}
+                                >
+                                  {a.name}:{suffix}
+                                </span>
+                                {idx < selectedCommand.args.length - 1 ? ', ' : ''}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-main-view-fg/60">
+                          No arguments
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2 text-xs text-main-view-fg/60">
+                      Unknown command: <span className="font-mono">/{commandQuery}</span>
+                    </div>
+                  )
+                ) : (
+                  <div className="max-h-56 overflow-auto">
+                    {commandSuggestions.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-main-view-fg/60">
+                        No matching commands
+                      </div>
+                    ) : (
+                      commandSuggestions.map((c, idx) => {
+                        const signature = formatCommandSignature(c)
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={cn(
+                              'w-full text-left px-3 py-2 hover:bg-main-view-fg/5',
+                              idx === selectedCommandIndex && 'bg-main-view-fg/5'
+                            )}
+                            onMouseDown={(e) => {
+                              e.preventDefault()
+                              insertCommandName(c.name)
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-sm text-main-view-fg font-mono truncate">
+                                  {signature}
+                                </div>
+                                <div className="text-xs text-main-view-fg/60 line-clamp-1">
+                                  {c.template}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-[11px] text-main-view-fg/50">
+                                Tab
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div
             className={cn(
               'relative z-20 px-0 pb-10 border border-main-view-fg/5 rounded-lg text-main-view-fg bg-main-view',
@@ -1600,6 +2157,24 @@ const ChatInput = ({
                     setMentionStart(null)
                     setMentionQuery('')
                   }
+
+                  // Slash-command autocomplete
+                  if (trigger < 0) {
+                    const ctx = detectCommandContext(val, caret)
+                    if (ctx) {
+                      setCommandStart(ctx.trigger)
+                      setCommandQuery(ctx.namePart)
+                      setCommandInArgs(ctx.inArgs)
+                      setCommandArgIndex(ctx.argIndex)
+                      setSelectedCommandIndex(0)
+                    } else {
+                      closeCommandAutocomplete()
+                    }
+                  } else {
+                    // Don't show command autocomplete while user is typing a mention
+                    closeCommandAutocomplete()
+                  }
+
                   // Count the number of newlines to estimate rows
                   const newRows = (val.match(/\n/g) || []).length + 1
                   setRows(Math.min(newRows, maxRows))
@@ -1621,6 +2196,22 @@ const ChatInput = ({
                   } else {
                     setMentionStart(null)
                     setMentionQuery('')
+                  }
+
+                  // Slash-command autocomplete on click as well (caret moved)
+                  if (trigger < 0) {
+                    const ctx = detectCommandContext(val, caret)
+                    if (ctx) {
+                      setCommandStart(ctx.trigger)
+                      setCommandQuery(ctx.namePart)
+                      setCommandInArgs(ctx.inArgs)
+                      setCommandArgIndex(ctx.argIndex)
+                      setSelectedCommandIndex(0)
+                    } else {
+                      closeCommandAutocomplete()
+                    }
+                  } else {
+                    closeCommandAutocomplete()
                   }
 
                   // If user clicked inside a mention token, snap to edge
@@ -1691,6 +2282,59 @@ const ChatInput = ({
                     if (e.key === 'Escape') {
                       setMentionStart(null)
                       setMentionQuery('')
+                      return
+                    }
+                  }
+
+                  // Command autocomplete navigation (only when not typing a mention)
+                  if (!mentionVisible && commandVisible && !commandInArgs) {
+                    if (commandSuggestions.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        setSelectedCommandIndex((prev) =>
+                          (prev + 1) % commandSuggestions.length
+                        )
+                        return
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        setSelectedCommandIndex((prev) =>
+                          (prev - 1 + commandSuggestions.length) %
+                          commandSuggestions.length
+                        )
+                        return
+                      }
+                      if (e.key === 'Tab') {
+                        e.preventDefault()
+                        const choice = commandSuggestions[selectedCommandIndex]
+                        if (choice) insertCommandInvocationStart(choice)
+                        return
+                      }
+                      // Only hijack Enter for command selection when not composing and not sending
+                      const isComposing =
+                        e.nativeEvent.isComposing || e.keyCode === 229
+                      if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
+                        e.preventDefault()
+                        const choice = commandSuggestions[selectedCommandIndex]
+                        if (choice) insertCommandName(choice.name)
+                        return
+                      }
+                    }
+                    if (e.key === 'Escape') {
+                      closeCommandAutocomplete()
+                      return
+                    }
+                  }
+
+                  // Command args-mode Tab: fill defaults arg-by-arg
+                  if (!mentionVisible && commandVisible && commandInArgs) {
+                    if (e.key === 'Tab') {
+                      e.preventDefault()
+                      if (selectedCommand) tabFillDefaultArg(selectedCommand)
+                      return
+                    }
+                    if (e.key === 'Escape') {
+                      closeCommandAutocomplete()
                       return
                     }
                   }

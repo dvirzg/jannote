@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import {
   IconPlus,
   IconTrash,
@@ -8,7 +8,6 @@ import {
   IconCommand,
 } from '@tabler/icons-react'
 
-import HeaderPage from '@/containers/HeaderPage'
 import { route } from '@/constants/routes'
 import { useCommands, type CommandArg, type CommandDefinition } from '@/hooks/useCommands'
 import { Button } from '@/components/ui/button'
@@ -23,7 +22,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
 import { isValidCommandName, renderCommandTemplate } from '@/lib/commands'
 import { toast } from 'sonner'
 import { useTranslation } from '@/i18n/react-i18next-compat'
@@ -42,6 +40,20 @@ type CommandDraft = {
 const normalizeArgName = (name: string) => name.trim().toLowerCase()
 const isValidArgName = (name: string) => /^[a-z][a-z0-9_-]*$/.test(normalizeArgName(name))
 
+// Extract argument names from template (e.g., "Tell me about {place} in {unit}" -> ["place", "unit"])
+const extractArgsFromTemplate = (template: string): string[] => {
+  const matches = template.match(/\{([^}]+)\}/g)
+  if (!matches) return []
+
+  const argNames = matches.map((match) => {
+    const name = match.slice(1, -1).trim()
+    return normalizeArgName(name)
+  })
+
+  // Remove duplicates while preserving order
+  return Array.from(new Set(argNames)).filter((name) => isValidArgName(name))
+}
+
 function CommandsPage() {
   const { t } = useTranslation()
   const commands = useCommands((s) => s.commands)
@@ -56,6 +68,34 @@ function CommandsPage() {
     template: '',
     args: [],
   })
+
+  // Auto-detect arguments from template
+  useEffect(() => {
+    if (!draft.template) {
+      setDraft((d) => ({ ...d, args: [] }))
+      return
+    }
+
+    const detectedArgNames = extractArgsFromTemplate(draft.template)
+
+    // Create args array, preserving existing default values
+    const newArgs = detectedArgNames.map((argName) => {
+      const existing = draft.args.find((a) => normalizeArgName(a.name) === argName)
+      return {
+        name: argName,
+        defaultValue: existing?.defaultValue || '',
+      }
+    })
+
+    // Only update if args changed
+    const argsChanged =
+      newArgs.length !== draft.args.length ||
+      newArgs.some((arg, idx) => normalizeArgName(draft.args[idx]?.name) !== arg.name)
+
+    if (argsChanged) {
+      setDraft((d) => ({ ...d, args: newArgs }))
+    }
+  }, [draft.template])
 
   const previewInvocation = useMemo(() => {
     const name = draft.name.trim() ? draft.name.trim().toLowerCase() : 'command'
@@ -104,28 +144,16 @@ function CommandsPage() {
       toast.error('Command name must be like "weather" or "my_command"')
       return
     }
-    const args = draft.args
-      .map((a) => ({ name: normalizeArgName(a.name), defaultValue: a.defaultValue }))
-      .filter((a) => a.name.length > 0)
-
-    if (args.some((a) => !isValidArgName(a.name))) {
-      toast.error('Argument names must be like "place" or "unit"')
-      return
-    }
-    const duplicates = new Set<string>()
-    const seen = new Set<string>()
-    args.forEach((a) => {
-      if (seen.has(a.name)) duplicates.add(a.name)
-      seen.add(a.name)
-    })
-    if (duplicates.size > 0) {
-      toast.error(`Duplicate argument(s): ${Array.from(duplicates).join(', ')}`)
-      return
-    }
     if (!draft.template.trim()) {
       toast.error('Template is required')
       return
     }
+
+    // Args are auto-detected and validated, just normalize them
+    const args = draft.args.map((a) => ({
+      name: normalizeArgName(a.name),
+      defaultValue: a.defaultValue
+    }))
 
     if (editing) {
       updateCommand(editing.id, {
@@ -142,35 +170,25 @@ function CommandsPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <HeaderPage>
-        <div className="w-full flex items-center justify-between relative z-20">
-          <div className="min-w-0 flex items-center gap-3">
-            <IconCommand size={20} className="text-main-view-fg/70 shrink-0" />
-            <div className="min-w-0">
-              <div className="text-base font-semibold truncate">
-                {t('common:commands')}
-              </div>
-              <div className="text-xs text-main-view-fg/60 truncate">
-                Create reusable prompt templates you can invoke as{' '}
-                <span className="font-mono">{previewInvocation}</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 relative z-20 shrink-0">
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex items-center gap-1.5 h-8 relative z-20 pointer-events-auto"
-              onClick={openCreate}
-              type="button"
-            >
-              <IconPlus size={14} />
-              New command
-            </Button>
-          </div>
+    <div className="flex flex-col h-full bg-main-view text-main-view-fg">
+      <div className="border-b border-main-view-fg/10 px-6 py-3 flex items-center justify-between relative z-10 bg-main-view">
+        <div className="flex items-center gap-3">
+          <IconCommand size={20} className="text-main-view-fg/70" />
+          <div className="text-base font-semibold">{t('common:commands')}</div>
         </div>
-      </HeaderPage>
+        <div className="flex items-center gap-2 relative z-20">
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex items-center gap-1.5 h-8 relative z-20 pointer-events-auto"
+            onClick={openCreate}
+            type="button"
+          >
+            <IconPlus size={14} />
+            New command
+          </Button>
+        </div>
+      </div>
 
       <div className="flex-1 overflow-y-auto p-6">
         {commands.length === 0 ? (
@@ -256,7 +274,7 @@ function CommandsPage() {
                     </div>
                     {cmd.args.length > 0 && (
                       <div className="text-xs text-main-view-fg/70 mt-3">
-                        <div className="font-medium mb-1">Defaults preview</div>
+                        <div className="font-medium mb-1">Default</div>
                         <div className="font-mono whitespace-pre-wrap break-words bg-main-view-fg/5 rounded-md p-2">
                           {rendered}
                         </div>
@@ -304,58 +322,29 @@ function CommandsPage() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-xs text-main-view-fg/70">Arguments</div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    setDraft((d) => ({
-                      ...d,
-                      args: [...d.args, { name: '', defaultValue: '' }],
-                    }))
-                  }
-                >
-                  <IconPlus size={14} className="mr-2" />
-                  Add argument
-                </Button>
+              <div className="text-xs text-main-view-fg/70 mb-2">
+                Arguments
               </div>
 
               {draft.args.length === 0 ? (
                 <div className="text-xs text-main-view-fg/50">
-                  No arguments. This command can be invoked as <span className="font-mono">/{draft.name.trim().toLowerCase() || 'command'}</span>.
+                  No arguments detected. Use placeholders like <span className="font-mono">{'{place}'}</span> in your template.
                 </div>
               ) : (
                 <div className="grid gap-2">
                   {draft.args.map((arg, idx) => {
                     const argName = normalizeArgName(arg.name)
-                    const invalid = arg.name.trim().length > 0 && !isValidArgName(arg.name)
                     return (
                       <div
                         key={idx}
-                        className={cn(
-                          'grid grid-cols-1 sm:grid-cols-5 gap-2 items-center',
-                          invalid && 'opacity-90'
-                        )}
+                        className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center"
                       >
-                        <div className="sm:col-span-2">
-                          <Input
-                            value={arg.name}
-                            onChange={(e) =>
-                              setDraft((d) => {
-                                const next = [...d.args]
-                                next[idx] = { ...next[idx], name: e.target.value }
-                                return { ...d, args: next }
-                              })
-                            }
-                            placeholder="place"
-                            className={cn(invalid && 'border-destructive')}
-                          />
-                          <div className="text-[11px] text-main-view-fg/50 mt-1 font-mono">
-                            {argName ? `{${argName}}` : '{arg}'}
+                        <div>
+                          <div className="text-xs font-medium text-main-view-fg/90 mb-1">
+                            <span className="font-mono">{`{${argName}}`}</span>
                           </div>
                         </div>
-                        <div className="sm:col-span-2">
+                        <div>
                           <Input
                             value={arg.defaultValue || ''}
                             onChange={(e) =>
@@ -365,24 +354,8 @@ function CommandsPage() {
                                 return { ...d, args: next }
                               })
                             }
-                            placeholder="Default (optional)"
+                            placeholder="Default value (optional)"
                           />
-                        </div>
-                        <div className="sm:col-span-1 flex sm:justify-end">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={() =>
-                              setDraft((d) => ({
-                                ...d,
-                                args: d.args.filter((_, i) => i !== idx),
-                              }))
-                            }
-                            title="Remove argument"
-                          >
-                            <IconTrash size={16} />
-                          </Button>
                         </div>
                       </div>
                     )

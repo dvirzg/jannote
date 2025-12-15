@@ -1,15 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route as CommandsRoute } from '../commands'
 import React from 'react'
 import type { ComponentType, ReactNode } from 'react'
-
-vi.mock('@/containers/HeaderPage', () => ({
-  default: ({ children }: { children: ReactNode }) => (
-    <div data-testid="header-page">{children}</div>
-  ),
-}))
 
 vi.mock('@/i18n/react-i18next-compat', () => ({
   useTranslation: () => ({

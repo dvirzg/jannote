@@ -1,4 +1,5 @@
 import type { CommandDefinition } from '@/hooks/useCommands'
+import { renderInstructions } from '@/lib/instructionTemplate'
 
 export type ParsedCommandInvocation = {
   name: string
@@ -134,7 +135,8 @@ export function renderCommandTemplate(
     valuesByName[arg.name] = v || arg.defaultValue || ''
   })
 
-  let out = command.template
+  // Allow global placeholders (e.g. {{current_date}}) inside command templates too.
+  let out = renderInstructions(command.template)
   command.args.forEach((arg) => {
     const re = new RegExp(`\\{${escapeRegExp(arg.name)}\\}`, 'g')
     out = out.replace(re, valuesByName[arg.name] ?? '')
