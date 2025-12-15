@@ -98,6 +98,25 @@ export const useDatabaseActions = () => {
     [serviceHub]
   )
 
+  const updateCategories = useCallback(
+    async (id: string, categories: string[]) => {
+      if (!id) return
+      try {
+        setLoading(true)
+        const entries = await serviceHub.database().updateCategories(id, categories)
+        setEntries(entries)
+      } catch (e) {
+        console.error('Failed to update categories', e)
+        toast.error('Failed to update categories', {
+          description: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [serviceHub]
+  )
+
   const pickAndAddFiles = useCallback(
     async (parentFolderId?: string) => {
       const selection = await serviceHub.dialog().open({
@@ -215,6 +234,7 @@ export const useDatabaseActions = () => {
     pickAndAddFiles,
     pickAndAddFolder,
     updateReferenceName,
+    updateCategories,
     createFolder,
     deleteById,
     getEntryById,

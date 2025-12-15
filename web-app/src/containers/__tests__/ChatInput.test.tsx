@@ -413,6 +413,44 @@ describe('ChatInput', () => {
     )
   })
 
+  it('strips @scope expressions and injects a context block before sending', async () => {
+    const user = userEvent.setup()
+    mockPromptState.prompt =
+      'please @scope(path="reports/**", limit_docs=2) summarize'
+
+    await act(async () => {
+      renderWithRouter()
+    })
+
+    const sendButton = document.querySelector('[data-test-id="send-message-button"]')
+    await act(async () => {
+      await user.click(sendButton)
+    })
+
+    await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+    const outbound = mockSendMessage.mock.calls[0]?.[0] as string
+    expect(outbound).not.toContain('@scope')
+    expect(outbound).toContain('[CONTEXT]')
+    expect(outbound).toContain('scopes:')
+    expect(outbound).toContain('limit_docs: 2')
+  })
+
+  it('does not send when #content is requested but content search is unavailable', async () => {
+    const user = userEvent.setup()
+    mockPromptState.prompt = '#content:"deep search"'
+
+    await act(async () => {
+      renderWithRouter()
+    })
+
+    const sendButton = document.querySelector('[data-test-id="send-message-button"]')
+    await act(async () => {
+      await user.click(sendButton)
+    })
+
+    await waitFor(() => expect(mockSendMessage).not.toHaveBeenCalled())
+  })
+
   it('sends message when Enter key is pressed', async () => {
     const user = userEvent.setup()
 

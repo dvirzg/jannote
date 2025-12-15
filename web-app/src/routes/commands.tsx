@@ -231,10 +231,11 @@ function CommandsPage() {
                           variant="ghost"
                           className="h-8 w-8"
                           onClick={() => {
-                            navigator.clipboard.writeText(invocation)
-                            toast.success('Copied invocation')
+                            const copyText = cmd.args.length ? `/${cmd.name}(` : `/${cmd.name}`
+                            navigator.clipboard.writeText(copyText)
+                            toast.success('Copied command name')
                           }}
-                          title="Copy invocation"
+                          title="Copy command name"
                           type="button"
                         >
                           <IconCopy size={16} />

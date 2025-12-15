@@ -79,6 +79,10 @@ import {
 import JanBrowserExtensionDialog from '@/containers/dialogs/JanBrowserExtensionDialog'
 import { useJanBrowserExtension } from '@/hooks/useJanBrowserExtension'
 import { injectDbRefsIntoPrompt } from '@/lib/dbRefs'
+import {
+  parseUnifiedCommands,
+  resolveUnifiedCommands,
+} from '@/lib/unifiedCommands'
 import { useCommands } from '@/hooks/useCommands'
 import { expandCommandsInPrompt } from '@/lib/commands'
 
@@ -913,9 +917,27 @@ const ChatInput = ({
       return
     }
     const { expanded: promptWithCommands } = expandCommandsInPrompt(prompt, commands)
+
+    const parsedUnified = parseUnifiedCommands(promptWithCommands)
+    const resolvedUnified = await resolveUnifiedCommands(
+      parsedUnified,
+      flattenedDatabaseEntries
+    )
+    if (resolvedUnified.errors.length) {
+      toast.error(resolvedUnified.errors[0])
+      return
+    }
+    if (resolvedUnified.warnings.length) {
+      resolvedUnified.warnings.forEach((w) => toast.warning(w))
+    }
+    const promptAfterScopes =
+      parsedUnified.cleanedPrompt.length > 0
+        ? parsedUnified.cleanedPrompt
+        : promptWithCommands
+
     const mentionedRefKeys = Array.from(
       new Set(
-        Array.from(promptWithCommands.matchAll(/@ref:([A-Za-z0-9_-]+)/g))
+        Array.from(promptAfterScopes.matchAll(/@ref:([A-Za-z0-9_-]+)/g))
           .map((m) => m[1])
           .filter(Boolean)
       )
@@ -933,7 +955,27 @@ const ChatInput = ({
       })
       .filter((v): v is NonNullable<typeof v> => Boolean(v))
 
-    const promptWithDbRefs = injectDbRefsIntoPrompt(promptWithCommands, dbRefs)
+    const contextBlock = {
+      scopes: parsedUnified.scopes.map((s) => s.raw),
+      filters: parsedUnified.filters.map((f) => f.raw),
+      limitDocs: resolvedUnified.limitDocs,
+      resolvedDocs: resolvedUnified.docIds.map((id) => {
+        const meta = dbIndex.get(id)
+        return {
+          id,
+          name: meta?.displayName ?? meta?.name,
+          path: meta?.path,
+        }
+      }),
+      warnings: resolvedUnified.warnings,
+      errors: resolvedUnified.errors,
+    }
+
+    const promptWithDbRefs = injectDbRefsIntoPrompt(
+      promptAfterScopes,
+      dbRefs,
+      contextBlock
+    )
 
     const expandedPrompt = promptWithDbRefs.replace(/@ref:([A-Za-z0-9_-]+)/g, (full, key) => {
       const meta = mentionMap[key]
@@ -942,7 +984,7 @@ const ChatInput = ({
 
     const { attachments: dbAttachments } = await (async () => {
       const regex = /@db:([A-Za-z0-9_-]+)/g
-      const ids = new Set<string>()
+      const ids = new Set<string>(resolvedUnified.docIds)
       let match: RegExpExecArray | null
       while ((match = regex.exec(expandedPrompt)) !== null) {
         if (match[1]) ids.add(match[1])

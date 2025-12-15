@@ -5,19 +5,75 @@ export type DbRef = {
   path?: string
 }
 
+export type ResolvedContextBlock = {
+  scopes?: string[]
+  filters?: string[]
+  resolvedDocs?: Array<{ id: string; name?: string; path?: string }>
+  limitDocs?: number
+  warnings?: string[]
+  errors?: string[]
+}
+
 const DBREF_START = '[DB_REFS]'
 const DBREF_END = '[/DB_REFS]'
+const CONTEXT_START = '[CONTEXT]'
+const CONTEXT_END = '[/CONTEXT]'
 
-export function injectDbRefsIntoPrompt(prompt: string, refs: DbRef[]): string {
-  if (!refs?.length) return prompt
-  const lines = refs
-    .map((r) => {
-      const parts = [`key: ${r.key}`, `db_id: ${r.dbId}`, `name: ${r.name}`]
-      if (r.path) parts.push(`path: ${r.path}`)
-      return `- ${parts.join(', ')}`
-    })
-    .join('\n')
-  return `${prompt}\n\n${DBREF_START}\n${lines}\n${DBREF_END}`
+export function injectDbRefsIntoPrompt(
+  prompt: string,
+  refs: DbRef[],
+  context?: ResolvedContextBlock
+): string {
+  const blocks: string[] = []
+
+  if (refs?.length) {
+    const lines = refs
+      .map((r) => {
+        const parts = [`key: ${r.key}`, `db_id: ${r.dbId}`, `name: ${r.name}`]
+        if (r.path) parts.push(`path: ${r.path}`)
+        return `- ${parts.join(', ')}`
+      })
+      .join('\n')
+    blocks.push(`${DBREF_START}\n${lines}\n${DBREF_END}`)
+  }
+
+  if (context) {
+    const ctxLines: string[] = []
+    if (context.scopes?.length) {
+      ctxLines.push('scopes:')
+      context.scopes.forEach((s) => ctxLines.push(`- ${s}`))
+    }
+    if (context.filters?.length) {
+      ctxLines.push('filters:')
+      context.filters.forEach((f) => ctxLines.push(`- ${f}`))
+    }
+    if (typeof context.limitDocs === 'number') {
+      ctxLines.push(`limit_docs: ${context.limitDocs}`)
+    }
+    if (context.resolvedDocs?.length) {
+      ctxLines.push('resolved_docs:')
+      context.resolvedDocs.forEach((d) => {
+        const parts = [`id: ${d.id}`]
+        if (d.name) parts.push(`name: ${d.name}`)
+        if (d.path) parts.push(`path: ${d.path}`)
+        ctxLines.push(`- ${parts.join(', ')}`)
+      })
+    }
+    if (context.warnings?.length) {
+      ctxLines.push('warnings:')
+      context.warnings.forEach((w) => ctxLines.push(`- ${w}`))
+    }
+    if (context.errors?.length) {
+      ctxLines.push('errors:')
+      context.errors.forEach((e) => ctxLines.push(`- ${e}`))
+    }
+    if (ctxLines.length) {
+      blocks.push(`${CONTEXT_START}\n${ctxLines.join('\n')}\n${CONTEXT_END}`)
+    }
+  }
+
+  if (!blocks.length) return prompt
+  return `${prompt}\n\n${blocks.join('\n\n')}`
 }
 
 export function extractDbRefsFromPrompt(prompt: string): {

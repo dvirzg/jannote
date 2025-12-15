@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { ulid } from 'ulidx'
 import { createDocumentAttachment, createImageAttachment, type Attachment } from '@/types/attachment'
 import { convertFileSrc } from '@tauri-apps/api/core'
+import { DefaultRAGService } from '../rag/default'
 import type {
   DatabaseEntry,
   DatabaseIngestionMode,
@@ -526,5 +527,93 @@ export class TauriDatabaseService
     )
     await this.writeIndex(updated)
     return this.buildTree(updated)
+  }
+
+  async updateCategories(id: string, categories: string[]): Promise<DatabaseEntry[]> {
+    const unique = [...new Set(categories.map((c) => c.trim()).filter(Boolean))]
+    const index = await this.readIndex()
+    const target = index.find((e) => e.id === id)
+    if (!target) {
+      throw new Error('Entry not found')
+    }
+    const updated = index.map((e) =>
+      e.id === id
+        ? { ...e, categories: unique }
+        : e
+    )
+    await this.writeIndex(updated)
+    return this.buildTree(updated)
+  }
+
+  async searchContent(ids: string[], query: string): Promise<Record<string, string[]>> {
+    const out: Record<string, string[]> = {}
+    if (!ids?.length || !query.trim()) return out
+    const q = query.toLowerCase()
+    const index = await this.readIndex()
+    const rag = new DefaultRAGService()
+
+    const snippet = (text: string, pos: number, window = 120) => {
+      const start = Math.max(0, pos - window)
+      const end = Math.min(text.length, pos + window)
+      return text.slice(start, end)
+    }
+
+    for (const id of ids) {
+      const entry = index.find((e) => e.id === id)
+      if (!entry || entry.type !== 'file') continue
+
+      // Skip obvious binary types to avoid heavy parsing or crashes
+      const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
+      const binaryExts = new Set([
+        'png',
+        'jpg',
+        'jpeg',
+        'gif',
+        'webp',
+        'svg',
+        'heic',
+        'heif',
+        'mp3',
+        'wav',
+        'flac',
+        'ogg',
+        'mp4',
+        'mov',
+        'avi',
+        'mkv',
+        'webm',
+      ])
+      if (binaryExts.has(ext)) continue
+
+      // Skip very large files to avoid stack overflow/overhead
+      try {
+        const stat = await fs.fileStat(entry.path)
+        const sizeNum = stat?.size ? Number(stat.size) : 0
+        const MAX_BYTES = 8 * 1024 * 1024
+        if (sizeNum > MAX_BYTES) continue
+      } catch {
+        // ignore stat errors
+      }
+
+      try {
+        const parsed = await rag.parseDocument(entry.path, entry.type)
+        if (!parsed) continue
+        const lower = parsed.toLowerCase()
+        let pos = lower.indexOf(q)
+        const snippets: string[] = []
+        let guard = 0
+        while (pos !== -1 && guard < 5) {
+          snippets.push(snippet(parsed, pos))
+          pos = lower.indexOf(q, pos + q.length)
+          guard++
+        }
+        if (snippets.length) {
+          out[id] = snippets
+        }
+      } catch (e) {
+        console.warn('searchContent parse failed', e)
+      }
+    }
+    return out
   }
 }
