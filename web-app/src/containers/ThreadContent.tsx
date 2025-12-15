@@ -33,6 +33,7 @@ import { useTranslation } from '@/i18n/react-i18next-compat'
 import { useModelProvider } from '@/hooks/useModelProvider'
 import { extractFilesFromPrompt } from '@/lib/fileMetadata'
 import { useDatabaseData } from '@/hooks/useDatabase'
+import { extractDbRefsFromPrompt } from '@/lib/dbRefs'
 import { createImageAttachment } from '@/types/attachment'
 import {
   Dialog,
@@ -100,6 +101,10 @@ export const ThreadContent = memo(
       { name: string; content: string } | null
     >(null)
     const { entries: dbEntries } = useDatabaseData()
+    const text = useMemo(
+      () => item.content.find((e) => e.type === 'text')?.text?.value ?? '',
+      [item.content]
+    )
 
     const dbIndex = useMemo(() => {
       const map = new Map<string, { name: string; displayName?: string; path: string }>()
@@ -114,30 +119,46 @@ export const ThreadContent = memo(
       return map
     }, [dbEntries])
 
+    const extractedUserText = useMemo(() => {
+      if (item.role !== 'user') {
+        return {
+          attachedFiles: [],
+          cleanPrompt: text,
+          dbRefMap: new Map<string, { name: string; path?: string }>(),
+        }
+      }
+      const { refs, cleanPrompt: withoutDbRefs } = extractDbRefsFromPrompt(text)
+      const { files, cleanPrompt: withoutFiles } = extractFilesFromPrompt(withoutDbRefs)
+      const map = new Map<string, { name: string; path?: string }>()
+      refs.forEach((r) => map.set(r.key, { name: r.name, path: r.path }))
+      return { attachedFiles: files, cleanPrompt: withoutFiles, dbRefMap: map }
+    }, [item.role, text])
+
+    const attachedFiles = extractedUserText.attachedFiles
+    const cleanPrompt = extractedUserText.cleanPrompt
+    const dbRefMap = extractedUserText.dbRefMap
+
     const renderPromptWithDbTokens = useCallback(
       (text: string) => {
         const nodes: React.ReactNode[] = []
-        const regex = /@db:([A-Za-z0-9_-]+)/g
+        const regex = /@(db:([A-Za-z0-9_-]+)|ref:([A-Za-z0-9_-]+))/g
         let lastIndex = 0
         let match: RegExpExecArray | null
         while ((match = regex.exec(text)) !== null) {
           if (match.index > lastIndex) {
             nodes.push(text.slice(lastIndex, match.index))
           }
-          const id = match[1]
-          const meta = id ? dbIndex.get(id) : undefined
-          const labelName = meta?.displayName || meta?.name || match[0]
-          const labelPath =
-            meta?.path && meta.path !== (meta.displayName || meta.name) ? meta.path : undefined
+          const dbId = match[2]
+          const refKey = match[3]
+          const refMeta = refKey ? dbRefMap.get(refKey) : undefined
+          const meta = dbId ? dbIndex.get(dbId) : undefined
+          const labelName = refMeta?.name || meta?.displayName || meta?.name || match[0]
           nodes.push(
             <span
-              key={`${match.index}-${id}`}
+              key={`${match.index}-${dbId || refKey || match[0]}`}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-main-view-fg/10 border border-main-view-fg/20 text-xs font-mono"
             >
               {labelName}
-              {labelPath ? (
-                <span className="text-main-view-fg/70 text-[10px]">{`/ ${labelPath}`}</span>
-              ) : null}
             </span>
           )
           lastIndex = match.index + match[0].length
@@ -147,7 +168,7 @@ export const ThreadContent = memo(
         }
         return nodes
       },
-      [dbIndex]
+      [dbIndex, dbRefMap]
     )
 
     // Use useMemo to stabilize the components prop
@@ -165,18 +186,7 @@ export const ThreadContent = memo(
       (state) => state.streamingContent?.thread_id === item.thread_id
     )
 
-    const text = useMemo(
-      () => item.content.find((e) => e.type === 'text')?.text?.value ?? '',
-      [item.content]
-    )
-
-    // Extract file metadata from user message text
-    const { files: attachedFiles, cleanPrompt } = useMemo(() => {
-      if (item.role === 'user') {
-        return extractFilesFromPrompt(text)
-      }
-      return { files: [], cleanPrompt: text }
-    }, [text, item.role])
+    // extractedUserText provides: attachedFiles, cleanPrompt, dbRefMap
 
     const inlineFileContents = useMemo(() => {
       const contents = (item.metadata as any)?.inline_file_contents

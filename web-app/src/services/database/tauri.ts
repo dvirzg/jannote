@@ -2,7 +2,8 @@ import { fs } from '@janhq/core'
 import { homeDir, join } from '@tauri-apps/api/path'
 import { invoke } from '@tauri-apps/api/core'
 import { ulid } from 'ulidx'
-import { createDocumentAttachment, type Attachment } from '@/types/attachment'
+import { createDocumentAttachment, createImageAttachment, type Attachment } from '@/types/attachment'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import type {
   DatabaseEntry,
   DatabaseIngestionMode,
@@ -430,6 +431,43 @@ export class TauriDatabaseService
     const attachments: Attachment[] = []
     const seen = new Set<string>()
 
+    const isImageExt = (ext?: string) => {
+      const e = (ext || '').toLowerCase()
+      return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(e)
+    }
+    const mimeFromExt = (ext?: string) => {
+      switch ((ext || '').toLowerCase()) {
+        case 'png':
+          return 'image/png'
+        case 'jpg':
+        case 'jpeg':
+          return 'image/jpeg'
+        case 'gif':
+          return 'image/gif'
+        case 'webp':
+          return 'image/webp'
+        case 'svg':
+          return 'image/svg+xml'
+        default:
+          return 'application/octet-stream'
+      }
+    }
+    const readPathAsDataUrl = async (path: string): Promise<{ dataUrl: string; base64: string; mimeType: string; size: number }> => {
+      const url = convertFileSrc(path)
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`Failed to read file: ${res.status}`)
+      const blob = await res.blob()
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onerror = () => reject(new Error('Failed to read file'))
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.readAsDataURL(blob)
+      })
+      const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : ''
+      const mimeType = blob.type || dataUrl.split(';')[0].replace('data:', '') || 'application/octet-stream'
+      return { dataUrl, base64, mimeType, size: blob.size }
+    }
+
     for (const id of ids) {
       const entry = index.find((e) => e.id === id)
       if (!entry) continue
@@ -437,11 +475,30 @@ export class TauriDatabaseService
       for (const file of files) {
         if (seen.has(file.path)) continue
         seen.add(file.path)
+        const ext = file.name.split('.').pop()
+        if (isImageExt(ext)) {
+          try {
+            const { dataUrl, base64, mimeType, size } = await readPathAsDataUrl(file.path)
+            attachments.push(
+              createImageAttachment({
+                name: file.displayName ?? file.name,
+                mimeType: mimeType || mimeFromExt(ext),
+                size,
+                base64,
+                dataUrl,
+              })
+            )
+          } catch (e) {
+            console.error('Failed to load image for db attachment', e)
+          }
+          continue
+        }
+
         attachments.push(
           createDocumentAttachment({
             name: file.displayName ?? file.name,
             path: file.path,
-            fileType: file.name.split('.').pop(),
+            fileType: ext,
             size: file.size,
             parseMode: file.injectionMode === 'inline' ? 'inline' : 'embeddings',
           })

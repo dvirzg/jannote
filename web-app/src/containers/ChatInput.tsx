@@ -78,6 +78,7 @@ import {
 } from '@/types/attachment'
 import JanBrowserExtensionDialog from '@/containers/dialogs/JanBrowserExtensionDialog'
 import { useJanBrowserExtension } from '@/hooks/useJanBrowserExtension'
+import { injectDbRefsIntoPrompt } from '@/lib/dbRefs'
 
 type ChatInputProps = {
   className?: string
@@ -272,7 +273,10 @@ const ChatInput = ({
       const selectionEnd = textarea.selectionEnd ?? value.length
       const start = mentionStart ?? selectionStart
 
-      const key = `ref_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+      // Keep @ref tokens short so chips don't add huge whitespace.
+      // Token length affects caret alignment, so we bias toward label length.
+      const desiredKeyLen = Math.max(3, Math.min(18, Math.max(3, label.length - 2)))
+      const key = Math.random().toString(36).slice(2, 2 + desiredKeyLen)
       const token = `@ref:${key}`
 
       setMentionMap((prev) => ({
@@ -439,7 +443,27 @@ const ChatInput = ({
       setMessage('Please select a model to start chatting.')
       return
     }
-    const expandedPrompt = prompt.replace(/@ref:([A-Za-z0-9_-]+)/g, (full, key) => {
+    const mentionedRefKeys = Array.from(
+      new Set(
+        Array.from(prompt.matchAll(/@ref:([A-Za-z0-9_-]+)/g)).map((m) => m[1]).filter(Boolean)
+      )
+    )
+    const dbRefs = mentionedRefKeys
+      .map((key) => {
+        const meta = mentionMap[key]
+        if (!meta?.id) return null
+        return {
+          key,
+          dbId: meta.id,
+          name: meta.displayName,
+          path: meta.path,
+        }
+      })
+      .filter((v): v is NonNullable<typeof v> => Boolean(v))
+
+    const promptWithDbRefs = injectDbRefsIntoPrompt(prompt, dbRefs)
+
+    const expandedPrompt = promptWithDbRefs.replace(/@ref:([A-Za-z0-9_-]+)/g, (full, key) => {
       const meta = mentionMap[key]
       return meta ? `@db:${meta.id}` : full
     })
@@ -477,10 +501,11 @@ const ChatInput = ({
       return merged
     })()
 
-    if (!expandedPrompt.trim() && combinedAttachments.length === 0) {
+    if (!promptWithDbRefs.trim() && combinedAttachments.length === 0) {
       return
     }
-    const outboundMessage = expandedPrompt.trim()
+    // Persist refs (human-readable chips) + hidden DB_REFS block; avoid leaking @db ids to the model.
+    const outboundMessage = promptWithDbRefs.trim()
 
     if (ingestingAny) {
       toast.info('Please wait for attachments to finish processing')
@@ -1517,12 +1542,6 @@ const ChatInput = ({
                       const metaRef = refKey ? mentionMap[refKey] : undefined
                       const metaDb = id ? dbIndex.get(id) : undefined
                       const label = metaRef?.displayName || metaDb?.displayName || metaDb?.name || match[0]
-                      const path =
-                        metaRef?.path && metaRef.path !== metaRef.displayName
-                          ? metaRef.path
-                          : metaDb?.path && metaDb.path !== (metaDb.displayName || metaDb.name)
-                          ? metaDb.path
-                          : undefined
                       nodes.push(
                         <span
                           key={`${match[0]}-${match.index}`}
@@ -1536,9 +1555,6 @@ const ChatInput = ({
                           <span className="absolute inset-0 inline-flex items-center px-2 py-0.5 rounded-full bg-main-view-fg/10 border border-main-view-fg/20 text-xs text-main-view-fg leading-none overflow-hidden whitespace-nowrap">
                             <span className="truncate">
                               {label}
-                              {path ? (
-                                <span className="text-main-view-fg/70 text-[10px]"> / {path}</span>
-                              ) : null}
                             </span>
                           </span>
                         </span>

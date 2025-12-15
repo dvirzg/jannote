@@ -3,6 +3,7 @@ import { ChatCompletionMessageParam } from 'token.js'
 import { ChatCompletionMessageToolCall } from 'openai/resources'
 import { ThreadMessage, ContentType } from '@janhq/core'
 import { removeReasoningContent } from '@/utils/reasoning'
+import { extractDbRefsFromPrompt } from '@/lib/dbRefs'
 // Attachments are now handled upstream in newUserThreadContent
 
 type ThreadContent = NonNullable<ThreadMessage['content']>[number]
@@ -95,11 +96,20 @@ export class CompletionMessagesBuilder {
       : []
 
     const buildInlineText = (base: string) => {
-      if (!inlineFileContents.length) return base
+      // Remove hidden DB_REFS block and replace @ref:key with human-readable names
+      const { refs, cleanPrompt } = extractDbRefsFromPrompt(base)
+      const refMap = new Map(refs.map((r) => [r.key, r]))
+      const withoutRefs = cleanPrompt.replace(/@ref:([A-Za-z0-9_-]+)/g, (full, key) => {
+        const r = refMap.get(key)
+        if (!r) return full
+        return r.name
+      })
+
+      if (!inlineFileContents.length) return withoutRefs
       const formatted = inlineFileContents
         .map((f) => `File: ${f.name || 'attachment'}\n${f.content ?? ''}`)
         .join('\n\n')
-      return base ? `${base}\n\n${formatted}` : formatted
+      return withoutRefs ? `${withoutRefs}\n\n${formatted}` : formatted
     }
 
     if (msg.role === 'assistant') {
