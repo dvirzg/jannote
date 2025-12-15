@@ -15,6 +15,7 @@ import {
   IconFolder,
   IconPencil,
   IconTrash,
+  IconDatabase,
 } from '@tabler/icons-react'
 import { route } from '@/constants/routes'
 import ThreadList from './ThreadList'
@@ -49,6 +50,12 @@ const mainMenus = [
     title: 'common:newChat',
     icon: IconCirclePlus,
     route: route.home,
+    isEnabled: true,
+  },
+  {
+    title: 'common:database.title',
+    icon: IconDatabase,
+    route: route.database,
     isEnabled: true,
   },
   {

@@ -272,9 +272,46 @@ const ChatInput = ({
       setMessage('Please select a model to start chatting.')
       return
     }
-    if (!prompt.trim()) {
+    const { cleanText, attachments: dbAttachments } = await (async () => {
+      const regex = /@db:([A-Za-z0-9_-]+)/g
+      const ids = new Set<string>()
+      const cleaned = prompt.replace(regex, (_match, id) => {
+        if (typeof id === 'string' && id.length > 0) {
+          ids.add(id)
+        }
+        return ''
+      })
+      if (ids.size === 0) return { cleanText: prompt, attachments: [] as Attachment[] }
+      try {
+        const fromDb = await serviceHub.database().toAttachments(Array.from(ids))
+        return { cleanText: cleaned, attachments: fromDb }
+      } catch (e) {
+        console.error('Failed to resolve database mentions', e)
+        toast.error('Failed to load database references')
+        return { cleanText: prompt, attachments: [] as Attachment[] }
+      }
+    })()
+
+    const combinedAttachments = (() => {
+      const existingKeys = new Set(
+        attachments.map((a) => (a.path ? `${a.type}-${a.path}` : `${a.type}-${a.name}`))
+      )
+      const merged = [...attachments]
+      dbAttachments.forEach((att) => {
+        const key = att.path ? `${att.type}-${att.path}` : `${att.type}-${att.name}`
+        if (!existingKeys.has(key)) {
+          merged.push(att)
+          existingKeys.add(key)
+        }
+      })
+      return merged
+    })()
+
+    if (!cleanText.trim() && combinedAttachments.length === 0) {
       return
     }
+    const outboundMessage = cleanText.trim()
+
     if (ingestingAny) {
       toast.info('Please wait for attachments to finish processing')
       return
@@ -283,9 +320,9 @@ const ChatInput = ({
     setMessage('')
 
     sendMessage(
-      prompt,
+      outboundMessage,
       true,
-      attachments.length > 0 ? attachments : undefined,
+      combinedAttachments.length > 0 ? combinedAttachments : undefined,
       projectId,
       updateAttachmentProcessing
     )

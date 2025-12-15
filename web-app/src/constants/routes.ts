@@ -27,4 +27,5 @@ export const route = {
   localApiServerlogs: '/local-api-server/logs',
   systemMonitor: '/system-monitor',
   threadsDetail: '/threads/$threadId',
+  database: '/database',
 }

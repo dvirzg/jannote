@@ -71,6 +71,16 @@
   "cancelDownload": "Cancel download",
   "downloadCancelled": "Download Cancelled",
   "downloadComplete": "Download Complete",
+  "database": {
+    "title": "Database",
+    "root": "Root",
+    "embeddings": "Embeddings",
+    "inline": "Raw inject",
+    "addFiles": "Add Files",
+    "addFolder": "Add Folder",
+    "loading": "Loading database...",
+    "empty": "No files yet. Upload files or folders to reuse them in chat with @db:<id>."
+  },
   "thinking": "Thinking...",
   "thought": "Thought",
   "callingTool": "Calling tool",
