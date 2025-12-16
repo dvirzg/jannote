@@ -341,9 +341,10 @@ function DatabasePage() {
         return
       }
       const parsed = parseUnifiedCommands(searchQuery)
-      // Extract the actual search query from parsed commands for preview
-      const searchQueryText = parsed.searches.length > 0 ? parsed.searches[0].query : searchQuery
-      setParsedSearchQuery(searchQueryText)
+      // Extract the actual search query from parsed commands for preview; avoid running previews for command-only inputs
+      const searchQueryText =
+        parsed.searches.length > 0 ? parsed.searches[0].query : parsed.cleanedPrompt
+      setParsedSearchQuery(searchQueryText || '')
       
       const db = serviceHub.database?.()
       const resolved = await resolveUnifiedCommands(parsed, flatEntries, {
@@ -376,32 +377,55 @@ function DatabasePage() {
 
   useEffect(() => {
     const fetchPreviews = async () => {
-      if (!searchIds || searchIds.length === 0 || !parsedSearchQuery) {
+      if (!searchIds || searchIds.length === 0) {
         setContentPreviews({})
         return
       }
+
+      // Always prepare a metadata-based fallback so scope-only queries still show something
+      const buildMetadataPreviews = () => {
+        const map: Record<string, string[]> = {}
+        for (const id of searchIds) {
+          const entry = getEntryById(id)
+          if (!entry) continue
+          const displayLabel = entry.displayName && entry.displayName !== entry.name ? entry.displayName : entry.name
+          const parts: string[] = [`Name: ${displayLabel}`, `Path: ${entry.relativePath}`]
+          if (entry.size) {
+            parts.push(`Size: ${formatFileSize(entry.size)}`)
+          }
+          map[id] = [parts.join('\n')]
+        }
+        return map
+      }
+
+      // If there is no content query text, show metadata only
+      if (!parsedSearchQuery.trim()) {
+        setContentPreviews(buildMetadataPreviews())
+        return
+      }
+
       // Try optional database content search if available
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const db: any = serviceHub.database?.()
         if (db?.searchContent) {
-          // Use the parsed query (without command syntax) for content search
           const result = await db.searchContent(Array.from(searchIds), parsedSearchQuery)
-          if (result && typeof result === 'object') {
+          if (result && typeof result === 'object' && Object.keys(result).length > 0) {
             setContentPreviews(result as Record<string, string[]>)
           } else {
-            setContentPreviews({})
+            // Fallback: metadata if no content matches were found
+            setContentPreviews(buildMetadataPreviews())
           }
         } else {
-          setContentPreviews({})
+          setContentPreviews(buildMetadataPreviews())
         }
       } catch (e) {
         console.warn('Content search preview failed', e)
-        setContentPreviews({})
+        setContentPreviews(buildMetadataPreviews())
       }
     }
     void fetchPreviews()
-  }, [searchIds, parsedSearchQuery, serviceHub])
+  }, [searchIds, parsedSearchQuery, serviceHub, getEntryById])
 
   const searchSnippets = useMemo(
     () => [
@@ -794,6 +818,15 @@ function DatabasePage() {
                       isActive && 'border-main-view-fg/40 bg-main-view/80'
                     )}
                     onClick={() => setSearchResultIndex(idx)}
+                    onDoubleClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (entry.type === 'file') {
+                        handleFileOpen(entry)
+                      } else if (entry.type === 'folder') {
+                        handleFolderClick(entry)
+                      }
+                    }}
                   >
                     <div className="text-sm font-semibold truncate">{entry.displayName || entry.name}</div>
                     <div className="text-xs text-main-view-fg/60 truncate">{entry.relativePath}</div>

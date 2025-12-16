@@ -4,6 +4,8 @@ export type ScopeExpression = {
   raw: string
   path?: string[]
   type?: 'file' | 'folder'
+  // Optional list of file extensions (lowercased, without dot) to filter files by
+  fileTypes?: string[]
   limitDocs?: number
 }
 
@@ -107,8 +109,15 @@ const parseScopeArgs = (argText: string): ScopeExpression => {
     if (parsed === undefined) continue
     if (key === 'path') {
       scope.path = Array.isArray(parsed) ? parsed : [String(parsed)]
-    } else if (key === 'type' && (parsed === 'file' || parsed === 'folder')) {
-      scope.type = parsed
+    } else if (key === 'type') {
+      if (parsed === 'file' || parsed === 'folder') {
+        scope.type = parsed
+      } else {
+        const values = Array.isArray(parsed) ? parsed : [String(parsed)]
+        scope.fileTypes = values
+          .map((v) => v.toLowerCase().replace(/^\./, ''))
+          .filter(Boolean)
+      }
     } else if (key === 'limit_docs' && typeof parsed === 'number') {
       scope.limitDocs = Math.max(0, Math.floor(parsed))
     }
@@ -286,6 +295,13 @@ const matchPath = (patterns: string[] | undefined, value: string): boolean => {
   })
 }
 
+const matchesFileType = (fileTypes: string[] | undefined, entryName: string, entryType: DatabaseEntry['type']): boolean => {
+  if (!fileTypes || fileTypes.length === 0) return true
+  if (entryType !== 'file') return false
+  const ext = entryName.split('.').pop()?.toLowerCase() ?? ''
+  return fileTypes.some((t) => t === ext)
+}
+
 export async function resolveUnifiedCommands(
   parsed: ParsedUnifiedCommands,
   entries: Array<
@@ -310,6 +326,7 @@ export async function resolveUnifiedCommands(
     return entries.filter((e) => {
       if (!matchPath(scope.path, e.relativePath)) return false
       if (scope.type && e.type !== scope.type) return false
+      if (!matchesFileType(scope.fileTypes, e.name, e.type)) return false
       return true
     })
   }
