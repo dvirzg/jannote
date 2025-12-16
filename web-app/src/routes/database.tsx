@@ -438,7 +438,34 @@ function DatabasePage() {
         const el = document.getElementById('database-search-input') as HTMLInputElement | null
         if (el) {
           el.focus()
-          el.setSelectionRange(el.value.length, el.value.length)
+          const newValue = el.value
+          
+          // Find the position inside quotes if the snippet contains them
+          // Look for patterns like: /search-vector("") or /search-exact("")
+          // We want to position the cursor between the quotes
+          // Search from the end backwards to find the most recent insertion
+          const quotePattern = /\((["'])\1\)/g // Matches ("") or ('') - captures quote type and uses backreference
+          let lastMatch: RegExpMatchArray | null = null
+          let match: RegExpMatchArray | null
+          
+          // Reset regex lastIndex to search from beginning
+          quotePattern.lastIndex = 0
+          
+          // Find all matches and get the last one (most likely the inserted snippet)
+          while ((match = quotePattern.exec(newValue)) !== null) {
+            lastMatch = match
+          }
+          
+          if (lastMatch && lastMatch.index !== undefined) {
+            // Position cursor right after the opening quote (between the quotes)
+            // lastMatch[0] is the matched string like ("") or ('')
+            // We want to position after the opening quote, which is at index + 2
+            const cursorPos = lastMatch.index + 2 // After the opening quote
+            el.setSelectionRange(cursorPos, cursorPos)
+          } else {
+            // Fallback: position at end if no quote pattern found
+            el.setSelectionRange(newValue.length, newValue.length)
+          }
         }
       }, 0)
     },
