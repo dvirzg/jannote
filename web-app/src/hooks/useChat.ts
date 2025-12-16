@@ -40,6 +40,7 @@ import {
   extractReasoningFromMessage,
 } from '@/utils/reasoning'
 import { useAssistant } from './useAssistant'
+import { useDefaultAgent } from './useDefaultAgent'
 import { useShallow } from 'zustand/shallow'
 import { TEMPORARY_CHAT_QUERY_ID, TEMPORARY_CHAT_ID } from '@/constants/chat'
 import { Attachment } from '@/types/attachment'
@@ -696,6 +697,30 @@ export const useChat = () => {
         }
         currentAssistant = useAssistant.getState().currentAssistant
 
+        // Priority resolution for instructions and parameters:
+        // 1. Custom assistant (if selected) - complete override
+        // 2. Thread-specific overrides (from thread.assistants[0])
+        // 3. Default agent settings
+        const defaultAgent = useDefaultAgent.getState()
+        const threadAssistantInfo = activeThread.assistants?.[0]
+
+        let effectiveInstructions: string | undefined
+        let effectiveParameters: Record<string, unknown>
+
+        if (currentAssistant) {
+          // Priority 1: Custom assistant completely overrides defaults
+          effectiveInstructions = currentAssistant.instructions
+          effectiveParameters = currentAssistant.parameters || {}
+        } else {
+          // Priority 2 & 3: Merge thread overrides with default agent
+          effectiveInstructions =
+            threadAssistantInfo?.instructions || defaultAgent.instructions
+          effectiveParameters = {
+            ...defaultAgent.parameters,
+            ...(threadAssistantInfo?.parameters || {}),
+          }
+        }
+
         // Filter out the stopped message from context if continuing
         const contextMessages = continueFromMessageId
           ? messages.filter((m) => m.id !== continueFromMessageId)
@@ -703,9 +728,7 @@ export const useChat = () => {
 
         const builder = new CompletionMessagesBuilder(
           contextMessages,
-          currentAssistant
-            ? renderInstructions(currentAssistant.instructions)
-            : undefined
+          effectiveInstructions ? renderInstructions(effectiveInstructions) : undefined
         )
         // Using addUserMessage to respect legacy code. Should be using the userContent above.
         if (troubleshooting && !continueFromMessageId) {
@@ -831,10 +854,10 @@ export const useChat = () => {
             builder.getMessages(),
             abortController,
             availableTools,
-            currentAssistant?.parameters?.stream === false ? false : true,
+            effectiveParameters?.stream === false ? false : true,
             {
               ...modelSettings,
-              ...(currentAssistant?.parameters || {}),
+              ...effectiveParameters,
             } as unknown as Record<string, object>
           )
 

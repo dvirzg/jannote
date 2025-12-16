@@ -11,6 +11,7 @@
 // Import Routes
 
 import { Route as rootRoute } from './routes/__root'
+import { Route as TheAgentImport } from './routes/the-agent'
 import { Route as SystemMonitorImport } from './routes/system-monitor'
 import { Route as LogsImport } from './routes/logs'
 import { Route as DatabaseImport } from './routes/database'
@@ -39,6 +40,12 @@ import { Route as SettingsProvidersProviderNameImport } from './routes/settings/
 import { Route as AuthGoogleCallbackImport } from './routes/auth.google.callback'
 
 // Create/Update Routes
+
+const TheAgentRoute = TheAgentImport.update({
+  id: '/the-agent',
+  path: '/the-agent',
+  getParentRoute: () => rootRoute,
+} as any)
 
 const SystemMonitorRoute = SystemMonitorImport.update({
   id: '/system-monitor',
@@ -236,6 +243,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SystemMonitorImport
       parentRoute: typeof rootRoute
     }
+    '/the-agent': {
+      id: '/the-agent'
+      path: '/the-agent'
+      fullPath: '/the-agent'
+      preLoaderRoute: typeof TheAgentImport
+      parentRoute: typeof rootRoute
+    }
     '/hub/$modelId': {
       id: '/hub/$modelId'
       path: '/hub/$modelId'
@@ -394,6 +408,7 @@ export interface FileRoutesByFullPath {
   '/database': typeof DatabaseRoute
   '/logs': typeof LogsRoute
   '/system-monitor': typeof SystemMonitorRoute
+  '/the-agent': typeof TheAgentRoute
   '/hub/$modelId': typeof HubModelIdRoute
   '/local-api-server/logs': typeof LocalApiServerLogsRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
@@ -423,6 +438,7 @@ export interface FileRoutesByTo {
   '/database': typeof DatabaseRoute
   '/logs': typeof LogsRoute
   '/system-monitor': typeof SystemMonitorRoute
+  '/the-agent': typeof TheAgentRoute
   '/hub/$modelId': typeof HubModelIdRoute
   '/local-api-server/logs': typeof LocalApiServerLogsRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
@@ -453,6 +469,7 @@ export interface FileRoutesById {
   '/database': typeof DatabaseRoute
   '/logs': typeof LogsRoute
   '/system-monitor': typeof SystemMonitorRoute
+  '/the-agent': typeof TheAgentRoute
   '/hub/$modelId': typeof HubModelIdRoute
   '/local-api-server/logs': typeof LocalApiServerLogsRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
@@ -484,6 +501,7 @@ export interface FileRouteTypes {
     | '/database'
     | '/logs'
     | '/system-monitor'
+    | '/the-agent'
     | '/hub/$modelId'
     | '/local-api-server/logs'
     | '/project/$projectId'
@@ -512,6 +530,7 @@ export interface FileRouteTypes {
     | '/database'
     | '/logs'
     | '/system-monitor'
+    | '/the-agent'
     | '/hub/$modelId'
     | '/local-api-server/logs'
     | '/project/$projectId'
@@ -540,6 +559,7 @@ export interface FileRouteTypes {
     | '/database'
     | '/logs'
     | '/system-monitor'
+    | '/the-agent'
     | '/hub/$modelId'
     | '/local-api-server/logs'
     | '/project/$projectId'
@@ -570,6 +590,7 @@ export interface RootRouteChildren {
   DatabaseRoute: typeof DatabaseRoute
   LogsRoute: typeof LogsRoute
   SystemMonitorRoute: typeof SystemMonitorRoute
+  TheAgentRoute: typeof TheAgentRoute
   HubModelIdRoute: typeof HubModelIdRoute
   LocalApiServerLogsRoute: typeof LocalApiServerLogsRoute
   ProjectProjectIdRoute: typeof ProjectProjectIdRoute
@@ -599,6 +620,7 @@ const rootRouteChildren: RootRouteChildren = {
   DatabaseRoute: DatabaseRoute,
   LogsRoute: LogsRoute,
   SystemMonitorRoute: SystemMonitorRoute,
+  TheAgentRoute: TheAgentRoute,
   HubModelIdRoute: HubModelIdRoute,
   LocalApiServerLogsRoute: LocalApiServerLogsRoute,
   ProjectProjectIdRoute: ProjectProjectIdRoute,
@@ -637,6 +659,7 @@ export const routeTree = rootRoute
         "/database",
         "/logs",
         "/system-monitor",
+        "/the-agent",
         "/hub/$modelId",
         "/local-api-server/logs",
         "/project/$projectId",
@@ -674,6 +697,9 @@ export const routeTree = rootRoute
     },
     "/system-monitor": {
       "filePath": "system-monitor.tsx"
+    },
+    "/the-agent": {
+      "filePath": "the-agent.tsx"
     },
     "/hub/$modelId": {
       "filePath": "hub/$modelId.tsx"

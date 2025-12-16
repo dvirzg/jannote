@@ -137,6 +137,26 @@ const ChatInput = ({
   const selectedProvider = useModelProvider((state) => state.selectedProvider)
   const sendMessage = useChat()
   const commands = useCommands((state) => state.commands)
+  
+  // Built-in database search commands
+  const builtInCommands = useMemo(() => [
+    {
+      id: 'builtin-search-exact',
+      name: 'search-exact',
+      template: 'Search database for exact text matches',
+      args: [{ name: 'query' }],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    {
+      id: 'builtin-search-vector',
+      name: 'search-vector',
+      template: 'Search database using semantic/vector similarity',
+      args: [{ name: 'query' }],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+  ] as typeof commands, [])
   const [message, setMessage] = useState('')
   const [mentionStart, setMentionStart] = useState<number | null>(null)
   const [mentionQuery, setMentionQuery] = useState('')
@@ -151,6 +171,20 @@ const ChatInput = ({
     string,
     { id: string; displayName: string; path?: string }
   >>({})
+  // Search results autocomplete state
+  const [searchResultsVisible, setSearchResultsVisible] = useState(false)
+  const [searchResultsQuery, setSearchResultsQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<Array<{
+    id: string
+    name: string
+    displayName: string
+    path: string
+    type: 'file' | 'folder'
+  }>>([])
+  const [selectedSearchResultIndex, setSelectedSearchResultIndex] = useState(0)
+  const [searchCommandName, setSearchCommandName] = useState<'search-exact' | 'search-vector' | null>(null)
+  const [searchCommandStart, setSearchCommandStart] = useState<number | null>(null)
+  const [selectedSearchIds, setSelectedSearchIds] = useState<Set<string>>(new Set())
   const [dropdownToolsAvailable, setDropdownToolsAvailable] = useState(false)
   const [tooltipToolsAvailable, setTooltipToolsAvailable] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -264,15 +298,213 @@ const ChatInput = ({
 
   const commandVisible = commandStart !== null
 
+  // Detect if we're inside a search command's query argument
+  const detectSearchCommand = useCallback((val: string, caret: number): {
+    commandName: 'search-exact' | 'search-vector'
+    query: string
+    queryStart: number
+    queryEnd: number
+    commandStart: number
+  } | null => {
+    // Look for /search-exact("...") or /search-vector("...")
+    // Find all matches first (avoid global regex issues)
+    const matches: Array<{ index: number; commandName: 'search-exact' | 'search-vector'; openParenPos: number }> = []
+    const regex = /\/(search-exact|search-vector)\s*\(/g
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(val)) !== null) {
+      matches.push({
+        index: match.index,
+        commandName: (match[1] === 'search-exact' ? 'search-exact' : 'search-vector') as 'search-exact' | 'search-vector',
+        openParenPos: match.index + match[0].length,
+      })
+    }
+    
+    let bestMatch: {
+      commandName: 'search-exact' | 'search-vector'
+      query: string
+      queryStart: number
+      queryEnd: number
+      commandStart: number
+    } | null = null
+    let bestDistance = Infinity
+    
+    for (const { index: commandStart, commandName, openParenPos } of matches) {
+      // Find the query string (first quoted argument)
+      let inSingle = false
+      let inDouble = false
+      let escaping = false
+      let quoteStart: number | null = null
+      let quoteEnd: number | null = null
+      let quoteChar: string | null = null
+      let closingParenPos: number | null = null
+      
+      for (let i = openParenPos; i < val.length; i++) {
+        const ch = val[i]
+        if (escaping) {
+          escaping = false
+          continue
+        }
+        if (ch === '\\') {
+          escaping = true
+          continue
+        }
+        if (ch === "'" && !inDouble) {
+          if (quoteStart === null) {
+            quoteStart = i + 1
+            quoteChar = "'"
+            inSingle = true
+          } else if (quoteChar === "'") {
+            quoteEnd = i
+            break
+          }
+        }
+        if (ch === '"' && !inSingle) {
+          if (quoteStart === null) {
+            quoteStart = i + 1
+            quoteChar = '"'
+            inDouble = true
+          } else if (quoteChar === '"') {
+            quoteEnd = i
+            break
+          }
+        }
+        if (ch === ')' && !inSingle && !inDouble) {
+          closingParenPos = i
+          // If we haven't found quotes yet, this command is done
+          if (quoteStart === null) break
+        }
+      }
+      
+      // Check if caret is within this command's range
+      const commandEnd = closingParenPos ?? val.length
+      if (caret < commandStart || caret > commandEnd + 1) continue
+      
+      // If we found quotes, extract the query
+      if (quoteStart !== null) {
+        const actualQuoteEnd = quoteEnd ?? (closingParenPos ? closingParenPos - 1 : val.length)
+        const query = val.slice(quoteStart, actualQuoteEnd)
+        const distance = Math.abs(caret - (quoteStart + actualQuoteEnd) / 2)
+        
+        // Prefer the match closest to the caret
+        if (distance < bestDistance) {
+          bestMatch = {
+            commandName,
+            query,
+            queryStart: quoteStart,
+            queryEnd: actualQuoteEnd + 1,
+            commandStart,
+          }
+          bestDistance = distance
+        }
+      } else if (caret >= openParenPos && caret <= commandEnd) {
+        // No quotes yet, but caret is inside the parentheses - treat as empty query
+        const distance = Math.abs(caret - openParenPos)
+        if (distance < bestDistance) {
+          bestMatch = {
+            commandName,
+            query: '',
+            queryStart: openParenPos + 1,
+            queryEnd: openParenPos + 1,
+            commandStart,
+          }
+          bestDistance = distance
+        }
+      }
+    }
+    
+    return bestMatch
+  }, [])
+
   const commandSuggestions = useMemo(() => {
     if (!commandVisible || commandInArgs) return []
+    const allCommands = [...builtInCommands, ...commands]
     const q = commandQuery.trim().toLowerCase()
     const filtered = q
-      ? commands.filter((c) => c.name.toLowerCase().startsWith(q))
-      : commands
+      ? allCommands.filter((c) => c.name.toLowerCase().startsWith(q))
+      : allCommands
     // Keep this list intentionally small so the UI stays lightweight.
     return [...filtered].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 10)
-  }, [commandVisible, commandInArgs, commandQuery, commands])
+  }, [commandVisible, commandInArgs, commandQuery, commands, builtInCommands])
+
+  // Perform search when user types in search command query
+  useEffect(() => {
+    if (!searchResultsVisible || !searchCommandName) {
+      setSearchResults([])
+      return
+    }
+    
+    // Allow empty query to show "Type to search..." message
+    if (!searchResultsQuery.trim()) {
+      setSearchResults([])
+      return
+    }
+
+    const performSearch = async () => {
+      console.log('Performing search:', { searchCommandName, query: searchResultsQuery, visible: searchResultsVisible })
+      const db = serviceHub.database?.()
+      if (!db) {
+        console.log('No database service available')
+        setSearchResults([])
+        return
+      }
+
+      try {
+        const query = searchResultsQuery.trim()
+        let resultIds: string[]
+        
+        // Get all database entry IDs to search across all entries
+        const allEntryIds = flattenedDatabaseEntries.map((e) => e.id)
+        
+        if (searchCommandName === 'search-exact') {
+          if (!db.searchExact) {
+            console.log('searchExact not available')
+            setSearchResults([])
+            return
+          }
+          console.log('Calling searchExact with query:', query, 'across', allEntryIds.length, 'entries')
+          // searchExact handles empty array by searching all, but we'll pass all IDs explicitly
+          resultIds = await db.searchExact(allEntryIds.length > 0 ? allEntryIds : [], query)
+          console.log('searchExact returned IDs:', resultIds)
+        } else {
+          if (!db.searchVector) {
+            console.log('searchVector not available')
+            setSearchResults([])
+            return
+          }
+          // searchVector requires IDs, so we must pass all entry IDs
+          if (allEntryIds.length === 0) {
+            console.log('No database entries to search')
+            setSearchResults([])
+            return
+          }
+          console.log('Calling searchVector with query:', query, 'across', allEntryIds.length, 'entries')
+          resultIds = await db.searchVector(allEntryIds, query)
+          console.log('searchVector returned IDs:', resultIds)
+        }
+
+        console.log('Total database entries:', flattenedDatabaseEntries.length)
+        // Map result IDs to database entries
+        const results = resultIds
+          .map((id) => {
+            const entry = flattenedDatabaseEntries.find((e) => e.id === id)
+            return entry
+          })
+          .filter((e): e is NonNullable<typeof e> => e !== undefined)
+          .slice(0, 20) // Limit to 20 results
+
+        console.log('Mapped results:', results.length, results)
+        setSearchResults(results)
+        setSelectedSearchResultIndex(0)
+      } catch (error) {
+        console.error('Search failed', error)
+        setSearchResults([])
+      }
+    }
+
+    // Debounce search
+    const timeoutId = setTimeout(performSearch, 300)
+    return () => clearTimeout(timeoutId)
+  }, [searchResultsVisible, searchCommandName, searchResultsQuery, serviceHub, flattenedDatabaseEntries])
 
   const formatCommandSignature = useCallback(
     (c: { name: string; args: Array<{ name: string }> }) => {
@@ -285,10 +517,11 @@ const ChatInput = ({
   const selectedCommand = useMemo(() => {
     if (commandInArgs) {
       const q = commandQuery.trim().toLowerCase()
-      return commands.find((c) => c.name.toLowerCase() === q)
+      const allCommands = [...builtInCommands, ...commands]
+      return allCommands.find((c) => c.name.toLowerCase() === q)
     }
     return commandSuggestions[selectedCommandIndex] ?? null
-  }, [commandInArgs, commandQuery, commands, commandSuggestions, selectedCommandIndex])
+  }, [commandInArgs, commandQuery, commands, builtInCommands, commandSuggestions, selectedCommandIndex])
 
   const closeCommandAutocomplete = useCallback(() => {
     setCommandStart(null)
@@ -771,6 +1004,75 @@ const ChatInput = ({
     },
     [mentionStart, setPrompt]
   )
+
+  const toggleSearchResult = useCallback((resultId: string) => {
+    setSelectedSearchIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(resultId)) {
+        next.delete(resultId)
+      } else {
+        next.add(resultId)
+      }
+      return next
+    })
+  }, [])
+
+  const insertSearchResults = useCallback(() => {
+    if (selectedSearchIds.size === 0) return
+    
+    const textarea = textareaRef.current
+    if (!textarea || !searchCommandStart) return
+    
+    const value = textarea.value
+    const caret = textarea.selectionStart ?? value.length
+    
+    // Find the search command
+    const searchCmd = detectSearchCommand(value, caret)
+    if (!searchCmd) return
+    
+    // Find the end of the search command (closing paren)
+    let commandEnd = searchCmd.queryEnd
+    for (let i = searchCmd.queryEnd; i < value.length; i++) {
+      if (value[i] === ')') {
+        commandEnd = i + 1
+        break
+      }
+    }
+    
+    // Get selected results and create @ref tokens for them
+    const selectedResults = searchResults.filter((r) => selectedSearchIds.has(r.id))
+    const tokens: string[] = []
+    
+    selectedResults.forEach((result) => {
+      const desiredKeyLen = Math.max(3, Math.min(18, Math.max(3, result.displayName.length - 2)))
+      const key = Math.random().toString(36).slice(2, 2 + desiredKeyLen)
+      const token = `@ref:${key}`
+      tokens.push(token)
+      
+      setMentionMap((prev) => ({
+        ...prev,
+        [key]: { id: result.id, displayName: result.displayName, path: result.path },
+      }))
+    })
+    
+    // Insert tokens after the search command
+    const before = value.slice(0, commandEnd)
+    const after = value.slice(commandEnd)
+    const tokensStr = tokens.length > 0 ? ' ' + tokens.join(' ') + ' ' : ''
+    const nextValue = `${before}${tokensStr}${after}`
+    
+    setPrompt(nextValue)
+    requestAnimationFrame(() => {
+      const newCaret = commandEnd + tokensStr.length
+      textarea.setSelectionRange(newCaret, newCaret)
+      textarea.focus()
+    })
+    
+    setSearchResultsVisible(false)
+    setSelectedSearchIds(new Set())
+    setSearchResultsQuery('')
+    toast.success(`Added ${selectedSearchIds.size} result${selectedSearchIds.size > 1 ? 's' : ''} to prompt`)
+  }, [selectedSearchIds, searchCommandStart, searchResults, detectSearchCommand, setPrompt])
 
   const handleTokenAwareBackspace = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1924,7 +2226,77 @@ const ChatInput = ({
             </div>
           )}
 
-          {!mentionVisible && commandVisible && (
+          {searchResultsVisible && (
+            <div className="mt-2 px-4">
+              <div className="rounded-lg border border-main-view-fg/10 bg-main-view shadow-lg overflow-hidden">
+                <div className="px-3 py-2 border-b border-main-view-fg/5 flex items-center justify-between">
+                  <div className="text-xs text-main-view-fg/80 font-medium">
+                    {searchCommandName === 'search-exact' ? 'Exact Search Results' : 'Vector Search Results'}
+                    {selectedSearchIds.size > 0 && (
+                      <span className="ml-2 text-main-view-fg/60">
+                        ({selectedSearchIds.size} selected)
+                      </span>
+                    )}
+                  </div>
+                  {selectedSearchIds.size > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 bg-accent text-accent-fg rounded hover:bg-accent/80"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        insertSearchResults()
+                      }}
+                    >
+                      Add Selected
+                    </button>
+                  )}
+                </div>
+                {searchResults.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-main-view-fg/60 text-center">
+                    {searchResultsQuery.trim() ? 'No results found' : 'Type to search...'}
+                  </div>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto">
+                    {searchResults.map((result, idx) => {
+                      const isSelected = selectedSearchIds.has(result.id)
+                      return (
+                        <button
+                          key={result.id}
+                          type="button"
+                          className={cn(
+                            'w-full text-left px-3 py-2 hover:bg-main-view-fg/5 flex items-center gap-2',
+                            idx === selectedSearchResultIndex && 'bg-main-view-fg/5',
+                            isSelected && 'bg-accent/10'
+                          )}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            toggleSearchResult(result.id)
+                          }}
+                        >
+                          <div className={cn(
+                            'w-4 h-4 border rounded flex items-center justify-center shrink-0',
+                            isSelected && 'bg-accent border-accent'
+                          )}>
+                            {isSelected && (
+                              <IconCheck size={12} className="text-accent-fg" />
+                            )}
+                          </div>
+                          <div className="flex flex-col items-start min-w-0 flex-1">
+                            <span className="text-sm text-main-view-fg">
+                              {result.displayName || result.name}
+                            </span>
+                            <span className="text-xs text-main-view-fg/60 truncate">/ {result.path}</span>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!mentionVisible && !searchResultsVisible && commandVisible && (
             <div className="mt-2 px-4" data-testid="command-autocomplete">
               <div className="rounded-lg border border-main-view-fg/10 bg-main-view shadow-lg overflow-hidden">
                 {commands.length === 0 ? (
@@ -2193,6 +2565,29 @@ const ChatInput = ({
                   const val = e.target.value
                   setPrompt(val)
                   const caret = e.target.selectionStart ?? val.length
+                  
+                  // Check for search command first (before mentions)
+                  const searchCmd = detectSearchCommand(val, caret)
+                  if (searchCmd) {
+                    console.log('Search command detected:', searchCmd)
+                    setSearchResultsVisible(true)
+                    setSearchCommandName(searchCmd.commandName)
+                    setSearchCommandStart(searchCmd.commandStart)
+                    setSearchResultsQuery(searchCmd.query)
+                    setMentionStart(null)
+                    setMentionQuery('')
+                    closeCommandAutocomplete()
+                  } else {
+                    if (searchResultsVisible) {
+                      console.log('Search command no longer detected')
+                    }
+                    setSearchResultsVisible(false)
+                    setSearchCommandName(null)
+                    setSearchCommandStart(null)
+                    setSearchResultsQuery('')
+                    setSelectedSearchIds(new Set())
+                  }
+                  
                   const trigger = val.lastIndexOf('@', caret - 1)
                   if (trigger >= 0) {
                     const nextSpace = val.indexOf(' ', trigger + 1)
@@ -2210,7 +2605,7 @@ const ChatInput = ({
                   }
 
                   // Slash-command autocomplete
-                  if (trigger < 0) {
+                  if (trigger < 0 && !searchCmd) {
                     const ctx = detectCommandContext(val, caret)
                     if (ctx) {
                       setCommandStart(ctx.trigger)
@@ -2222,7 +2617,7 @@ const ChatInput = ({
                       closeCommandAutocomplete()
                     }
                   } else {
-                    // Don't show command autocomplete while user is typing a mention
+                    // Don't show command autocomplete while user is typing a mention or search
                     closeCommandAutocomplete()
                   }
 
@@ -2234,6 +2629,25 @@ const ChatInput = ({
                   const target = e.target as HTMLTextAreaElement
                   const caret = target.selectionStart ?? 0
                   const val = target.value
+                  
+                  // Check for search command first
+                  const searchCmd = detectSearchCommand(val, caret)
+                  if (searchCmd) {
+                    setSearchResultsVisible(true)
+                    setSearchCommandName(searchCmd.commandName)
+                    setSearchCommandStart(searchCmd.commandStart)
+                    setSearchResultsQuery(searchCmd.query)
+                    setMentionStart(null)
+                    setMentionQuery('')
+                    closeCommandAutocomplete()
+                    return
+                  } else {
+                    setSearchResultsVisible(false)
+                    setSearchCommandName(null)
+                    setSearchCommandStart(null)
+                    setSearchResultsQuery('')
+                  }
+                  
                   const trigger = val.lastIndexOf('@', caret - 1)
                   if (trigger >= 0) {
                     const nextSpace = val.indexOf(' ', trigger + 1)
@@ -2250,7 +2664,7 @@ const ChatInput = ({
                   }
 
                   // Slash-command autocomplete on click as well (caret moved)
-                  if (trigger < 0) {
+                  if (trigger < 0 && !searchCmd) {
                     const ctx = detectCommandContext(val, caret)
                     if (ctx) {
                       setCommandStart(ctx.trigger)
@@ -2300,6 +2714,52 @@ const ChatInput = ({
                     !e.altKey
                   ) {
                     snapCaretOutOfToken('right')
+                  }
+
+                  // Search results navigation
+                  if (searchResultsVisible) {
+                    if (searchResults.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        setSelectedSearchResultIndex((prev) =>
+                          (prev + 1) % searchResults.length
+                        )
+                        return
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        setSelectedSearchResultIndex((prev) =>
+                          (prev - 1 + searchResults.length) % searchResults.length
+                        )
+                        return
+                      }
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      // If results are available and user has selected some, insert them
+                      if (selectedSearchIds.size > 0) {
+                        insertSearchResults()
+                        return
+                      }
+                      // If results are available but none selected, toggle the highlighted one
+                      if (searchResults.length > 0) {
+                        const choice = searchResults[selectedSearchResultIndex]
+                        if (choice) {
+                          toggleSearchResult(choice.id)
+                        }
+                        return
+                      }
+                      // If no results yet, don't send - wait for search to complete
+                      return
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setSearchResultsVisible(false)
+                      setSearchCommandName(null)
+                      setSearchResultsQuery('')
+                      setSelectedSearchIds(new Set())
+                      return
+                    }
                   }
 
                   // Mention navigation
@@ -2414,7 +2874,8 @@ const ChatInput = ({
                     // - Enter is pressed without Shift
                     // - The streaming content has finished
                     // - Prompt is not empty
-                    if (!streamingContent && prompt.trim() && !ingestingAny) {
+                    // - Search results are not visible (user should select results first)
+                    if (!streamingContent && prompt.trim() && !ingestingAny && !searchResultsVisible) {
                       handleSendMessage(prompt)
                     }
                     // When Shift+Enter is pressed, a new line is added (default behavior)
@@ -2706,9 +3167,20 @@ const ChatInput = ({
                 <Button
                   variant={!prompt.trim() ? null : 'default'}
                   size="icon"
-                  disabled={!prompt.trim() || ingestingAny}
+                  disabled={!prompt.trim() || ingestingAny || searchResultsVisible}
                   data-test-id="send-message-button"
-                  onClick={() => handleSendMessage(prompt)}
+                  onClick={() => {
+                    // Prevent sending if search results are visible - user should select results first
+                    if (searchResultsVisible) {
+                      if (selectedSearchIds.size > 0) {
+                        insertSearchResults()
+                      } else {
+                        toast.info('Please select search results before sending')
+                      }
+                      return
+                    }
+                    handleSendMessage(prompt)
+                  }}
                 >
                   {streamingContent || ingestingAny ? (
                     <span className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />

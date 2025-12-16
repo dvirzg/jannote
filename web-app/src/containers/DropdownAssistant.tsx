@@ -8,9 +8,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useAssistant } from '@/hooks/useAssistant'
 import AddEditAssistant from './dialogs/AddEditAssistant'
-import { IconCirclePlus, IconSettings } from '@tabler/icons-react'
+import ThreadAgentOverride from './dialogs/ThreadAgentOverride'
+import { IconCirclePlus, IconSettings, IconMessageCircle } from '@tabler/icons-react'
 import { useThreads } from '@/hooks/useThreads'
 import { AvatarEmoji } from '@/containers/AvatarEmoji'
+import { useRouterState } from '@tanstack/react-router'
 
 const DropdownAssistant = () => {
   const {
@@ -20,15 +22,20 @@ const DropdownAssistant = () => {
     updateAssistant,
     setCurrentAssistant,
   } = useAssistant()
-  const { updateCurrentThreadAssistant } = useThreads()
+  const { updateCurrentThreadAssistant, currentThreadId } = useThreads()
+  const routerState = useRouterState()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [threadDialogOpen, setThreadDialogOpen] = useState(false)
   const [editingAssistantId, setEditingAssistantId] = useState<string | null>(
     null
   )
 
   const selectedAssistant =
     assistants.find((a) => a.id === currentAssistant?.id) || assistants[0]
+
+  // Detect if we're in a thread context (not on home page)
+  const isInThread = routerState.location.pathname.startsWith('/threads/') && currentThreadId
 
   return (
     <>
@@ -55,7 +62,9 @@ const DropdownAssistant = () => {
           <div
             className="size-5 cursor-pointer relative z-10 flex items-center justify-center rounded hover:bg-main-view-fg/10 transition-all duration-200 ease-in-out "
             onClick={() => {
-              if (selectedAssistant) {
+              if (isInThread) {
+                setThreadDialogOpen(true)
+              } else if (selectedAssistant) {
                 setEditingAssistantId(selectedAssistant.id)
                 setDialogOpen(true)
               }
@@ -64,7 +73,7 @@ const DropdownAssistant = () => {
             <IconSettings
               size={16}
               className="text-main-view-fg/50"
-              title="Edit Assistant"
+              title={isInThread ? "Edit for This Chat" : "Edit Assistant"}
             />
           </div>
         </div>
@@ -117,6 +126,18 @@ const DropdownAssistant = () => {
           ))}
 
           <DropdownMenuSeparator />
+          {isInThread && (
+            <DropdownMenuItem
+              onClick={() => {
+                setThreadDialogOpen(true)
+              }}
+            >
+              <IconMessageCircle size={16} />
+              <span className="truncate text-main-view-fg/70">
+                Edit for This Chat
+              </span>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onClick={() => {
               setEditingAssistantId(null)
@@ -149,6 +170,13 @@ const DropdownAssistant = () => {
           setDialogOpen(false)
         }}
       />
+      {isInThread && currentThreadId && (
+        <ThreadAgentOverride
+          open={threadDialogOpen}
+          onOpenChange={setThreadDialogOpen}
+          threadId={currentThreadId}
+        />
+      )}
     </>
   )
 }
