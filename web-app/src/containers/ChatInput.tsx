@@ -919,9 +919,18 @@ const ChatInput = ({
     const { expanded: promptWithCommands } = expandCommandsInPrompt(prompt, commands)
 
     const parsedUnified = parseUnifiedCommands(promptWithCommands)
+    const db = serviceHub.database?.()
     const resolvedUnified = await resolveUnifiedCommands(
       parsedUnified,
-      flattenedDatabaseEntries
+      flattenedDatabaseEntries,
+      {
+        searchExact: db?.searchExact
+          ? async (ids, query) => await db.searchExact(ids, query)
+          : undefined,
+        searchVector: db?.searchVector
+          ? async (ids, query) => await db.searchVector(ids, query)
+          : undefined,
+      }
     )
     if (resolvedUnified.errors.length) {
       toast.error(resolvedUnified.errors[0])
@@ -957,7 +966,7 @@ const ChatInput = ({
 
     const contextBlock = {
       scopes: parsedUnified.scopes.map((s) => s.raw),
-      filters: parsedUnified.filters.map((f) => f.raw),
+      searches: parsedUnified.searches.map((s) => s.raw),
       limitDocs: resolvedUnified.limitDocs,
       resolvedDocs: resolvedUnified.docIds.map((id) => {
         const meta = dbIndex.get(id)

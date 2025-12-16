@@ -7,23 +7,24 @@ export type ScopeExpression = {
   limitDocs?: number
 }
 
-export type FilterExpression = {
+export type SearchExpression = {
   raw: string
-  kind: 'meta' | 'content'
+  kind: 'exact' | 'vector'
   query: string
+  args?: Record<string, ParsedValue>
 }
 
 export type ParsedUnifiedCommands = {
   cleanedPrompt: string
   scopes: ScopeExpression[]
-  filters: FilterExpression[]
+  searches: SearchExpression[]
   warnings: string[]
 }
 
 export type ResolvedUnifiedContext = {
   docIds: string[]
   scopes: ScopeExpression[]
-  filters: FilterExpression[]
+  searches: SearchExpression[]
   warnings: string[]
   errors: string[]
   limitDocs?: number
@@ -131,9 +132,55 @@ const stripAndCollect = (
   return out.replace(/\s{2,}/g, ' ').trim()
 }
 
+const parseSearchArgs = (argText: string): Record<string, ParsedValue> => {
+  const args: Record<string, ParsedValue> = {}
+  const parts: Array<{ key: string; value: string }> = []
+  let current = ''
+  let depth = 0
+  let inSingle = false
+  let inDouble = false
+
+  const pushCurrent = () => {
+    const chunk = current.trim()
+    if (!chunk) return
+    const eq = chunk.indexOf('=')
+    if (eq === -1) return
+    const key = chunk.slice(0, eq).trim()
+    const value = chunk.slice(eq + 1).trim()
+    if (key) parts.push({ key, value })
+  }
+
+  for (let i = 0; i < argText.length; i++) {
+    const ch = argText[i]
+    current += ch
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle
+    } else if (ch === '"' && !inSingle) {
+      inDouble = !inDouble
+    } else if (!inSingle && !inDouble) {
+      if (ch === '(' || ch === '[') depth++
+      if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1)
+      if (ch === ',' && depth === 0) {
+        pushCurrent()
+        current = ''
+      }
+    }
+  }
+  pushCurrent()
+
+  for (const { key, value } of parts) {
+    const parsed = parseValue(value)
+    if (parsed !== undefined) {
+      args[key] = parsed
+    }
+  }
+
+  return args
+}
+
 export function parseUnifiedCommands(prompt: string): ParsedUnifiedCommands {
   const scopes: ScopeExpression[] = []
-  const filters: FilterExpression[] = []
+  const searches: SearchExpression[] = []
   const warnings: string[] = []
   const ranges: Array<{ start: number; end: number }> = []
 
@@ -146,18 +193,73 @@ export function parseUnifiedCommands(prompt: string): ParsedUnifiedCommands {
     ranges.push({ start: sm.index, end: sm.index + raw.length })
   }
 
-  const filterRegex = /#(meta|content):\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/gi
-  let fm: RegExpExecArray | null
-  while ((fm = filterRegex.exec(prompt)) !== null) {
-    const kind = fm[1]?.toLowerCase() as 'meta' | 'content'
-    const raw = fm[0]
-    const queryRaw = fm[2] ?? ''
-    filters.push({
+  // Match /search-exact(query, args?) or /search-vector(query, args?)
+  // The query can be quoted or unquoted, and args are optional
+  const searchRegex = /\/(search-exact|search-vector)\s*\(([^)]*)\)/gi
+  let searchMatch: RegExpExecArray | null
+  while ((searchMatch = searchRegex.exec(prompt)) !== null) {
+    const kind = (searchMatch[1]?.toLowerCase() === 'search-exact' ? 'exact' : 'vector') as 'exact' | 'vector'
+    const raw = searchMatch[0]
+    const inner = searchMatch[2] ?? ''
+    
+    // Parse the inner content: query and optional args
+    // First, try to extract the query (first quoted string or first unquoted value)
+    let query = ''
+    let argsText = ''
+    
+    const trimmed = inner.trim()
+    if (trimmed.startsWith('"') || trimmed.startsWith("'")) {
+      // Query is quoted - find the closing quote (handling escaped quotes)
+      const quote = trimmed[0]
+      let endQuote = -1
+      let escaped = false
+      for (let i = 1; i < trimmed.length; i++) {
+        if (escaped) {
+          escaped = false
+          continue
+        }
+        if (trimmed[i] === '\\') {
+          escaped = true
+          continue
+        }
+        if (trimmed[i] === quote) {
+          endQuote = i
+          break
+        }
+      }
+      if (endQuote > 0) {
+        // Extract the quoted string (including quotes) and unquote it
+        const quotedPart = trimmed.slice(0, endQuote + 1)
+        query = unquote(quotedPart)
+        // Get remaining text after the closing quote
+        argsText = trimmed.slice(endQuote + 1).trim()
+        if (argsText.startsWith(',')) {
+          argsText = argsText.slice(1).trim()
+        }
+      } else {
+        // No closing quote found - treat the whole thing as the query (unquoted)
+        // This handles malformed quotes gracefully
+        query = trimmed.replace(/^["']|["']$/g, '')
+      }
+    } else {
+      // Query is unquoted - find first comma or end
+      const commaIdx = trimmed.indexOf(',')
+      if (commaIdx > 0) {
+        query = trimmed.slice(0, commaIdx).trim()
+        argsText = trimmed.slice(commaIdx + 1).trim()
+      } else {
+        query = trimmed
+      }
+    }
+
+    const args = argsText ? parseSearchArgs(argsText) : undefined
+    searches.push({
       raw,
       kind,
-      query: unquote(queryRaw),
+      query,
+      args,
     })
-    ranges.push({ start: fm.index, end: fm.index + raw.length })
+    ranges.push({ start: searchMatch.index, end: searchMatch.index + raw.length })
   }
 
   const cleanedPrompt = stripAndCollect(
@@ -165,7 +267,7 @@ export function parseUnifiedCommands(prompt: string): ParsedUnifiedCommands {
     ranges.sort((a, b) => a.start - b.start)
   )
 
-  return { cleanedPrompt, scopes, filters, warnings }
+  return { cleanedPrompt, scopes, searches, warnings }
 }
 
 const globToRegExp = (pattern: string): RegExp => {
@@ -190,7 +292,8 @@ export async function resolveUnifiedCommands(
     Pick<DatabaseEntry, 'id' | 'relativePath' | 'displayName' | 'name' | 'type'>
   >,
   opts?: {
-    contentSearch?: (candidateIds: string[], query: string) => Promise<string[]>
+    searchExact?: (candidateIds: string[], query: string) => Promise<string[]>
+    searchVector?: (candidateIds: string[], query: string) => Promise<string[]>
   }
 ): Promise<ResolvedUnifiedContext> {
   const warnings = [...parsed.warnings]
@@ -234,31 +337,47 @@ export async function resolveUnifiedCommands(
 
   let narrowed = uniqueById(baseSet)
 
-  for (const f of parsed.filters) {
-    if (f.kind === 'meta') {
-      const q = f.query.toLowerCase()
-      narrowed = narrowed.filter((e) => {
-        return (
-          e.displayName?.toLowerCase().includes(q) ||
-          e.name.toLowerCase().includes(q) ||
-          e.relativePath.toLowerCase().includes(q)
-        )
-      })
-    } else if (f.kind === 'content') {
-      if (!opts?.contentSearch) {
-        errors.push('Content search requested but no content search is available.')
+  for (const search of parsed.searches) {
+    if (search.kind === 'exact') {
+      if (!opts?.searchExact) {
+        errors.push('Exact search requested but not available.')
         continue
       }
       try {
-        const ids = await opts.contentSearch(
-          narrowed.map((n) => n.id),
-          f.query
-        )
+        // When there's no scope, pass empty array to search all entries in index
+        // Otherwise, search only within the scoped entries
+        const candidateIds = parsed.scopes.length === 0 ? [] : narrowed.map((n) => n.id)
+        const ids = await opts.searchExact(candidateIds, search.query)
         const idSet = new Set(ids)
-        narrowed = narrowed.filter((e) => idSet.has(e.id))
+        // If we searched all entries, use the results directly; otherwise filter narrowed set
+        if (parsed.scopes.length === 0) {
+          narrowed = entries.filter((e) => idSet.has(e.id))
+        } else {
+          narrowed = narrowed.filter((e) => idSet.has(e.id))
+        }
       } catch (e) {
-        console.error('Content search failed', e)
-        errors.push('Content search failed.')
+        console.error('Exact search failed', e)
+        errors.push('Exact search failed.')
+      }
+    } else if (search.kind === 'vector') {
+      if (!opts?.searchVector) {
+        errors.push('Vector search requested but not available.')
+        continue
+      }
+      try {
+        // When there's no scope, pass empty array to search all entries in index
+        const candidateIds = parsed.scopes.length === 0 ? [] : narrowed.map((n) => n.id)
+        const ids = await opts.searchVector(candidateIds, search.query)
+        const idSet = new Set(ids)
+        // If we searched all entries, use the results directly; otherwise filter narrowed set
+        if (parsed.scopes.length === 0) {
+          narrowed = entries.filter((e) => idSet.has(e.id))
+        } else {
+          narrowed = narrowed.filter((e) => idSet.has(e.id))
+        }
+      } catch (e) {
+        console.error('Vector search failed', e)
+        errors.push('Vector search failed.')
       }
     }
   }
@@ -271,7 +390,7 @@ export async function resolveUnifiedCommands(
   return {
     docIds: limited.map((e) => e.id),
     scopes: parsed.scopes,
-    filters: parsed.filters,
+    searches: parsed.searches,
     warnings,
     errors,
     limitDocs: globalLimit,

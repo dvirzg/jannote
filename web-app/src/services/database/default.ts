@@ -1,4 +1,4 @@
-import type { DatabaseEntry, DatabaseService, DatabaseIngestionMode } from './types'
+import type { DatabaseEntry, DatabaseService } from './types'
 import type { Attachment } from '@/types/attachment'
 
 export class DefaultDatabaseService implements DatabaseService {
@@ -11,12 +11,7 @@ export class DefaultDatabaseService implements DatabaseService {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async addPaths(_paths: string[], _ingestionMode: DatabaseIngestionMode, _parentFolderId?: string): Promise<DatabaseEntry[]> {
-    throw new Error('Database service not available on this platform')
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async addPathsWithModes(_pathsWithModes: Array<{ path: string; mode: DatabaseIngestionMode }>, _parentFolderId?: string): Promise<DatabaseEntry[]> {
+  async addPaths(_paths: string[], _parentFolderId?: string): Promise<DatabaseEntry[]> {
     throw new Error('Database service not available on this platform')
   }
 
@@ -41,6 +36,16 @@ export class DefaultDatabaseService implements DatabaseService {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async searchExact(_ids: string[], _query: string): Promise<string[]> {
+    throw new Error('Database service not available on this platform')
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async searchVector(_ids: string[], _query: string): Promise<string[]> {
+    throw new Error('Database service not available on this platform')
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async deleteById(_id: string): Promise<void> {
     throw new Error('Database service not available on this platform')
   }
@@ -52,5 +57,10 @@ export class DefaultDatabaseService implements DatabaseService {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async toAttachments(_ids: string[]): Promise<Attachment[]> {
     return []
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async openFile(_id: string): Promise<void> {
+    throw new Error('Database service not available on this platform')
   }
 }

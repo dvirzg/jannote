@@ -20,7 +20,6 @@ import OutOfContextPromiseModal from '@/containers/dialogs/OutOfContextDialog'
 import LoadModelErrorDialog from '@/containers/dialogs/LoadModelErrorDialog'
 import { useSmallScreen } from '@/hooks/useMediaQuery'
 import AttachmentIngestionDialog from '@/containers/dialogs/AttachmentIngestionDialog'
-import DatabaseIngestionDialog from '@/containers/dialogs/DatabaseIngestionDialog'
 import CreateFolderDialog from '@/containers/dialogs/CreateFolderDialog'
 import {
   ResizablePanelGroup,
@@ -243,7 +242,6 @@ function RootLayout() {
           <LoadModelErrorDialog />
           <ErrorDialog />
           <AttachmentIngestionDialog />
-          <DatabaseIngestionDialog />
           <CreateFolderDialog />
           <OutOfContextPromiseModal />
         </TranslationProvider>

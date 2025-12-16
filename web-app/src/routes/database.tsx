@@ -9,6 +9,7 @@ import {
   IconUpload,
   IconRefresh,
   IconCopy,
+  IconEdit,
   IconFile,
   IconFileText,
   IconFileTypePdf,
@@ -88,11 +89,13 @@ const GridItem = ({
   onDelete,
   onFolderClick,
   onEditMetadata,
+  onFileOpen,
 }: {
   entry: DatabaseEntry
   onDelete: (id: string) => void
   onFolderClick?: (entry: DatabaseEntry) => void
   onEditMetadata?: (entry: DatabaseEntry) => void
+  onFileOpen?: (entry: DatabaseEntry) => void
 }) => {
   const [isHovered, setIsHovered] = useState(false)
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
@@ -125,7 +128,7 @@ const GridItem = ({
         <div
           className={cn(
             'group relative flex flex-col items-center gap-2 rounded-lg border border-main-view-fg/10 bg-main-view/30 p-4 transition-all',
-            isFolder ? 'cursor-pointer' : 'cursor-default',
+            'cursor-pointer',
             'hover:border-main-view-fg/20 hover:bg-main-view/50 hover:shadow-sm'
           )}
           onMouseEnter={() => setIsHovered(true)}
@@ -138,6 +141,13 @@ const GridItem = ({
               if (isFolder && onFolderClick) {
                 onFolderClick(entry)
               }
+            }
+          }}
+          onDoubleClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            if (!isFolder && onFileOpen) {
+              onFileOpen(entry)
             }
           }}
           onContextMenu={handleContextMenu}
@@ -186,7 +196,11 @@ const GridItem = ({
                 <>
                   {formatFileSize(entry.size)}
                   {entry.size && ' · '}
-                  {entry.injectionMode === 'inline' ? 'Raw' : 'Embed'}
+                  {entry.embeddingStatus === 'embedding' ? 'Embedding...' :
+                   entry.embeddingStatus === 'embedded' ? 'Embedded' :
+                   entry.embeddingStatus === 'error' ? 'Error' :
+                   entry.embeddingStatus === 'pending' ? 'Pending' :
+                   null}
                   {entry.displayName && entry.displayName !== entry.name ? (
                     <div className="text-[11px] text-main-view-fg/50 mt-1">Original: {entry.name}</div>
                   ) : null}
@@ -206,6 +220,7 @@ const GridItem = ({
             setIsContextMenuOpen(false)
           }}
         >
+          <IconEdit size={14} className="mr-2" />
           Edit metadata
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -253,6 +268,17 @@ function DatabasePage() {
   const [searchWarnings, setSearchWarnings] = useState<string[]>([])
   const [searchFocused, setSearchFocused] = useState(false)
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(0)
+
+  useEffect(() => {
+    // Listen for embedding status updates
+    const handleStatusUpdate = () => {
+      refresh()
+    }
+    window.addEventListener('database:embedding-status-updated', handleStatusUpdate)
+    return () => {
+      window.removeEventListener('database:embedding-status-updated', handleStatusUpdate)
+    }
+  }, [refresh])
 
   useEffect(() => {
     // Add CSS for scrolling animation
@@ -304,15 +330,30 @@ function DatabasePage() {
     return out
   }, [entries])
 
+  const [parsedSearchQuery, setParsedSearchQuery] = useState<string>('')
+
   useEffect(() => {
     const run = async () => {
       if (!searchQuery.trim()) {
         setSearchIds(null)
         setSearchWarnings([])
+        setParsedSearchQuery('')
         return
       }
       const parsed = parseUnifiedCommands(searchQuery)
-      const resolved = await resolveUnifiedCommands(parsed, flatEntries)
+      // Extract the actual search query from parsed commands for preview
+      const searchQueryText = parsed.searches.length > 0 ? parsed.searches[0].query : searchQuery
+      setParsedSearchQuery(searchQueryText)
+      
+      const db = serviceHub.database?.()
+      const resolved = await resolveUnifiedCommands(parsed, flatEntries, {
+        searchExact: db?.searchExact
+          ? async (ids, query) => await db.searchExact(ids, query)
+          : undefined,
+        searchVector: db?.searchVector
+          ? async (ids, query) => await db.searchVector(ids, query)
+          : undefined,
+      })
       if (resolved.errors.length) {
         toast.error(resolved.errors[0])
         setSearchIds([])
@@ -323,7 +364,7 @@ function DatabasePage() {
       setSearchWarnings(resolved.warnings)
     }
     void run()
-  }, [searchQuery, flatEntries])
+  }, [searchQuery, flatEntries, serviceHub])
 
   useEffect(() => {
     if (!searchIds || searchIds.length === 0) {
@@ -335,7 +376,7 @@ function DatabasePage() {
 
   useEffect(() => {
     const fetchPreviews = async () => {
-      if (!searchIds || searchIds.length === 0) {
+      if (!searchIds || searchIds.length === 0 || !parsedSearchQuery) {
         setContentPreviews({})
         return
       }
@@ -344,7 +385,8 @@ function DatabasePage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const db: any = serviceHub.database?.()
         if (db?.searchContent) {
-          const result = await db.searchContent(Array.from(searchIds), searchQuery)
+          // Use the parsed query (without command syntax) for content search
+          const result = await db.searchContent(Array.from(searchIds), parsedSearchQuery)
           if (result && typeof result === 'object') {
             setContentPreviews(result as Record<string, string[]>)
           } else {
@@ -359,7 +401,7 @@ function DatabasePage() {
       }
     }
     void fetchPreviews()
-  }, [searchIds, searchQuery, serviceHub])
+  }, [searchIds, parsedSearchQuery, serviceHub])
 
   const searchSnippets = useMemo(
     () => [
@@ -367,8 +409,8 @@ function DatabasePage() {
       '@scope(path="**/*.pdf")',
       '@scope(type="file")',
       '@scope(type="folder")',
-      '#meta:""',
-      '#content:""',
+      '/search-exact("")',
+      '/search-vector("")',
     ],
     []
   )
@@ -454,6 +496,18 @@ function DatabasePage() {
       } else {
         setCurrentFolderId(newStack[newStack.length - 1].id)
       }
+    }
+  }
+
+  const handleFileOpen = async (file: DatabaseEntry) => {
+    if (file.type !== 'file') return
+
+    try {
+      const db = serviceHub.database()
+      await db.openFile(file.id)
+    } catch (e) {
+      console.error('Failed to open file:', e)
+      toast.error('Failed to open file: ' + (e instanceof Error ? e.message : 'Unknown error'))
     }
   }
 
@@ -579,6 +633,12 @@ function DatabasePage() {
             onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                setSearchQuery('')
+                e.currentTarget.blur()
+                return
+              }
               if (filteredSnippets.length === 0) return
               if (e.key === 'Tab') {
                 e.preventDefault()
@@ -599,7 +659,7 @@ function DatabasePage() {
               }
             }}
             placeholder='Type @scope(...) #meta:"..." #content:"..."'
-            className="w-full rounded-md border border-main-view-fg/15 bg-main-view/60 pl-9 pr-3 py-2 text-sm text-main-view-fg outline-none focus:border-main-view-fg/30"
+            className="w-full rounded-md border border-main-view-fg/15 bg-main-view-fg/10 pl-9 pr-3 py-2 text-sm text-main-view-fg outline-none focus:border-main-view-fg/30"
           />
           {(searchFocused || searchQuery) && filteredSnippets.length > 0 && (
             <div className="absolute mt-1 w-full rounded-md border border-main-view-fg/15 bg-main-view shadow-lg z-10 overflow-hidden">
@@ -765,6 +825,7 @@ function DatabasePage() {
                 onDelete={deleteById}
                 onFolderClick={handleFolderClick}
                 onEditMetadata={openMetadataEditor}
+                onFileOpen={handleFileOpen}
               />
             ))}
           </div>

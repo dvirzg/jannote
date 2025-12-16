@@ -3,12 +3,9 @@ import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { toast } from 'sonner'
 import { useServiceHub } from './useServiceHub'
-import { useDatabaseIngestionPrompt } from './useDatabaseIngestionPrompt'
 import { useCreateFolderPrompt } from './useCreateFolderPrompt'
-import { fs } from '@janhq/core'
 import type {
   DatabaseEntry,
-  DatabaseIngestionMode,
 } from '@/services/database/types'
 
 type DatabaseState = {
@@ -61,11 +58,11 @@ export const useDatabaseActions = () => {
   }, [serviceHub, setEntries, setError, setLoading])
 
   const addPaths = useCallback(
-    async (paths: string[], ingestionMode: DatabaseIngestionMode) => {
+    async (paths: string[]) => {
       if (!paths?.length) return
       try {
         setLoading(true)
-        const entries = await serviceHub.database().addPaths(paths, ingestionMode)
+        const entries = await serviceHub.database().addPaths(paths)
         setEntries(entries)
       } catch (e) {
         console.error('Failed to add to database', e)
@@ -126,42 +123,17 @@ export const useDatabaseActions = () => {
       const paths = Array.isArray(selection) ? selection : [selection]
       if (!paths.length) return
 
-      // Get file info and prompt for each file
-      const pathsWithModes: Array<{ path: string; mode: DatabaseIngestionMode }> = []
-      const prompt = useDatabaseIngestionPrompt.getState()
-
-      for (let i = 0; i < paths.length; i++) {
-        const path = paths[i]
-        const name = path.split(/[\\/]/).pop() || path
-        let size: number | undefined
-        try {
-          const stat = await fs.fileStat(path)
-          size = stat?.size ? Number(stat.size) : undefined
-        } catch (e) {
-          console.warn('Failed to get file size for', path, e)
-        }
-
-        const choice = await prompt.showPrompt({ name, path, size }, i, paths.length)
-        if (!choice) {
-          // User cancelled - stop processing
-          return
-        }
-        pathsWithModes.push({ path, mode: choice })
-      }
-
-      if (pathsWithModes.length > 0) {
-        try {
-          setLoading(true)
-          const entries = await serviceHub.database().addPathsWithModes(pathsWithModes, parentFolderId)
-          setEntries(entries)
-        } catch (e) {
-          console.error('Failed to add to database', e)
-          toast.error('Failed to add to Database', {
-            description: e instanceof Error ? e.message : String(e),
-          })
-        } finally {
-          setLoading(false)
-        }
+      try {
+        setLoading(true)
+        const entries = await serviceHub.database().addPaths(paths, parentFolderId)
+        setEntries(entries)
+      } catch (e) {
+        console.error('Failed to add to database', e)
+        toast.error('Failed to add to Database', {
+          description: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        setLoading(false)
       }
     },
     [serviceHub, setEntries, setLoading]

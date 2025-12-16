@@ -15,6 +15,8 @@ use zip::read::ZipArchive;
 pub fn parse_pdf(file_path: &str) -> Result<String, RagError> {
     let bytes = fs::read(file_path)?;
     // pdf-extract can panic on some malformed PDFs; guard to avoid crashing the app
+    // Note: pdf-extract may write warnings to stderr (unicode mismatches, missing glyphs)
+    // These are harmless warnings and don't affect parsing functionality
     let text = match catch_unwind(AssertUnwindSafe(|| pdf_extract::extract_text_from_mem(&bytes))) {
         Ok(Ok(t)) => t,
         Ok(Err(e)) => return Err(RagError::ParseError(format!("PDF parse error: {}", e))),

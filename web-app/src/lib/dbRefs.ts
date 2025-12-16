@@ -7,7 +7,7 @@ export type DbRef = {
 
 export type ResolvedContextBlock = {
   scopes?: string[]
-  filters?: string[]
+  searches?: string[]
   resolvedDocs?: Array<{ id: string; name?: string; path?: string }>
   limitDocs?: number
   warnings?: string[]
@@ -43,9 +43,9 @@ export function injectDbRefsIntoPrompt(
       ctxLines.push('scopes:')
       context.scopes.forEach((s) => ctxLines.push(`- ${s}`))
     }
-    if (context.filters?.length) {
-      ctxLines.push('filters:')
-      context.filters.forEach((f) => ctxLines.push(`- ${f}`))
+    if (context.searches?.length) {
+      ctxLines.push('searches:')
+      context.searches.forEach((s) => ctxLines.push(`- ${s}`))
     }
     if (typeof context.limitDocs === 'number') {
       ctxLines.push(`limit_docs: ${context.limitDocs}`)
