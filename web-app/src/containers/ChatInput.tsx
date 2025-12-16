@@ -137,7 +137,7 @@ const ChatInput = ({
   const selectedProvider = useModelProvider((state) => state.selectedProvider)
   const sendMessage = useChat()
   const commands = useCommands((state) => state.commands)
-  
+
   // Built-in database search commands
   const builtInCommands = useMemo(() => [
     {
@@ -318,7 +318,7 @@ const ChatInput = ({
         openParenPos: match.index + match[0].length,
       })
     }
-    
+
     let bestMatch: {
       commandName: 'search-exact' | 'search-vector'
       query: string
@@ -327,7 +327,7 @@ const ChatInput = ({
       commandStart: number
     } | null = null
     let bestDistance = Infinity
-    
+
     for (const { index: commandStart, commandName, openParenPos } of matches) {
       // Find the query string (first quoted argument)
       let inSingle = false
@@ -337,7 +337,7 @@ const ChatInput = ({
       let quoteEnd: number | null = null
       let quoteChar: string | null = null
       let closingParenPos: number | null = null
-      
+
       for (let i = openParenPos; i < val.length; i++) {
         const ch = val[i]
         if (escaping) {
@@ -374,17 +374,17 @@ const ChatInput = ({
           if (quoteStart === null) break
         }
       }
-      
+
       // Check if caret is within this command's range
       const commandEnd = closingParenPos ?? val.length
       if (caret < commandStart || caret > commandEnd + 1) continue
-      
+
       // If we found quotes, extract the query
       if (quoteStart !== null) {
         const actualQuoteEnd = quoteEnd ?? (closingParenPos ? closingParenPos - 1 : val.length)
         const query = val.slice(quoteStart, actualQuoteEnd)
         const distance = Math.abs(caret - (quoteStart + actualQuoteEnd) / 2)
-        
+
         // Prefer the match closest to the caret
         if (distance < bestDistance) {
           bestMatch = {
@@ -411,7 +411,7 @@ const ChatInput = ({
         }
       }
     }
-    
+
     return bestMatch
   }, [])
 
@@ -432,7 +432,7 @@ const ChatInput = ({
       setSearchResults([])
       return
     }
-    
+
     // Allow empty query to show "Type to search..." message
     if (!searchResultsQuery.trim()) {
       setSearchResults([])
@@ -451,10 +451,10 @@ const ChatInput = ({
       try {
         const query = searchResultsQuery.trim()
         let resultIds: string[]
-        
+
         // Get all database entry IDs to search across all entries
         const allEntryIds = flattenedDatabaseEntries.map((e) => e.id)
-        
+
         if (searchCommandName === 'search-exact') {
           if (!db.searchExact) {
             console.log('searchExact not available')
@@ -1019,17 +1019,17 @@ const ChatInput = ({
 
   const insertSearchResults = useCallback(() => {
     if (selectedSearchIds.size === 0) return
-    
+
     const textarea = textareaRef.current
     if (!textarea || !searchCommandStart) return
-    
+
     const value = textarea.value
     const caret = textarea.selectionStart ?? value.length
-    
+
     // Find the search command
     const searchCmd = detectSearchCommand(value, caret)
     if (!searchCmd) return
-    
+
     // Find the end of the search command (closing paren)
     let commandEnd = searchCmd.queryEnd
     for (let i = searchCmd.queryEnd; i < value.length; i++) {
@@ -1038,36 +1038,36 @@ const ChatInput = ({
         break
       }
     }
-    
+
     // Get selected results and create @ref tokens for them
     const selectedResults = searchResults.filter((r) => selectedSearchIds.has(r.id))
     const tokens: string[] = []
-    
+
     selectedResults.forEach((result) => {
       const desiredKeyLen = Math.max(3, Math.min(18, Math.max(3, result.displayName.length - 2)))
       const key = Math.random().toString(36).slice(2, 2 + desiredKeyLen)
       const token = `@ref:${key}`
       tokens.push(token)
-      
+
       setMentionMap((prev) => ({
         ...prev,
         [key]: { id: result.id, displayName: result.displayName, path: result.path },
       }))
     })
-    
+
     // Insert tokens after the search command
     const before = value.slice(0, commandEnd)
     const after = value.slice(commandEnd)
     const tokensStr = tokens.length > 0 ? ' ' + tokens.join(' ') + ' ' : ''
     const nextValue = `${before}${tokensStr}${after}`
-    
+
     setPrompt(nextValue)
     requestAnimationFrame(() => {
       const newCaret = commandEnd + tokensStr.length
       textarea.setSelectionRange(newCaret, newCaret)
       textarea.focus()
     })
-    
+
     setSearchResultsVisible(false)
     setSelectedSearchIds(new Set())
     setSearchResultsQuery('')
@@ -1167,13 +1167,13 @@ const ChatInput = ({
           prev.map((att) =>
             att.name === fileName
               ? {
-                  ...att,
-                  ...updatedAttachment,
-                  processing: status === 'processing',
-                  processed: status === 'done'
-                    ? true
-                    : updatedAttachment?.processed ?? att.processed,
-                }
+                ...att,
+                ...updatedAttachment,
+                processing: status === 'processing',
+                processed: status === 'done'
+                  ? true
+                  : updatedAttachment?.processed ?? att.processed,
+              }
               : att
           )
         )
@@ -1446,17 +1446,17 @@ const ChatInput = ({
       const rawContextThreshold =
         typeof modelContextLength === 'number' && modelContextLength > 0
           ? Math.floor(
-              modelContextLength *
-                (typeof autoInlineContextRatio === 'number'
-                  ? autoInlineContextRatio
-                  : 0.75)
-            )
+            modelContextLength *
+            (typeof autoInlineContextRatio === 'number'
+              ? autoInlineContextRatio
+              : 0.75)
+          )
           : undefined
 
       const contextThreshold =
         typeof rawContextThreshold === 'number' &&
-        Number.isFinite(rawContextThreshold) &&
-        rawContextThreshold > 0
+          Number.isFinite(rawContextThreshold) &&
+          rawContextThreshold > 0
           ? rawContextThreshold
           : undefined
 
@@ -1539,7 +1539,7 @@ const ChatInput = ({
       }
 
       try {
-        const { processedAttachments, hasEmbeddedDocuments } =
+        const { processedAttachments } =
           await processAttachmentsForSend({
             attachments: docs,
             threadId: currentThreadId,
@@ -1561,12 +1561,6 @@ const ChatInput = ({
               return match ? { ...att, ...match } : att
             })
           )
-        }
-
-        if (hasEmbeddedDocuments) {
-          useThreads.getState().updateThread(currentThreadId, {
-            metadata: { hasDocuments: true },
-          })
         }
       } catch (e) {
         console.error('Failed to process attachments:', e)
@@ -2565,7 +2559,7 @@ const ChatInput = ({
                   const val = e.target.value
                   setPrompt(val)
                   const caret = e.target.selectionStart ?? val.length
-                  
+
                   // Check for search command first (before mentions)
                   const searchCmd = detectSearchCommand(val, caret)
                   if (searchCmd) {
@@ -2587,7 +2581,7 @@ const ChatInput = ({
                     setSearchResultsQuery('')
                     setSelectedSearchIds(new Set())
                   }
-                  
+
                   const trigger = val.lastIndexOf('@', caret - 1)
                   if (trigger >= 0) {
                     const nextSpace = val.indexOf(' ', trigger + 1)
@@ -2629,7 +2623,7 @@ const ChatInput = ({
                   const target = e.target as HTMLTextAreaElement
                   const caret = target.selectionStart ?? 0
                   const val = target.value
-                  
+
                   // Check for search command first
                   const searchCmd = detectSearchCommand(val, caret)
                   if (searchCmd) {
@@ -2647,7 +2641,7 @@ const ChatInput = ({
                     setSearchCommandStart(null)
                     setSearchResultsQuery('')
                   }
-                  
+
                   const trigger = val.lastIndexOf('@', caret - 1)
                   if (trigger >= 0) {
                     const nextSpace = val.indexOf(' ', trigger + 1)
@@ -3019,8 +3013,8 @@ const ChatInput = ({
                           {isJanBrowserMCPLoading
                             ? 'Starting...'
                             : janBrowserMCPActive
-                            ? 'Browse (Active)'
-                            : 'Browse'}
+                              ? 'Browse (Active)'
+                              : 'Browse'}
                         </p>
                       </TooltipContent>
                     </Tooltip>

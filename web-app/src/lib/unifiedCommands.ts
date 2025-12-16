@@ -332,7 +332,13 @@ export async function resolveUnifiedCommands(
   }
 
   const baseSet = (() => {
+    // No commands in prompt? Return empty - default is no resolution
+    if (parsed.scopes.length === 0 && parsed.searches.length === 0) return []
+
+    // Searches without scopes? Search all entries
     if (parsed.scopes.length === 0) return entries
+
+    // Scopes present? Collect entries matching scopes
     const collected: typeof entries = []
     for (const scope of parsed.scopes) {
       const scoped = resolveScope(scope)

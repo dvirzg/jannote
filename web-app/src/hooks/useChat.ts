@@ -153,7 +153,7 @@ const processStreamingCompletion = async (
       setTokenSpeed(
         currentContent,
         tokenUsageRef.current.completion_tokens /
-          Math.max((Date.now() - timeToFirstToken) / 1000, 1),
+        Math.max((Date.now() - timeToFirstToken) / 1000, 1),
         tokenUsageRef.current.completion_tokens
       )
     } else if (pendingDeltaCount > 0) {
@@ -341,7 +341,7 @@ export const useChat = () => {
           },
           isTemporaryMode ? 'Temporary Chat' : currentPrompt,
           assistants.find((a) => a.id === currentAssistant?.id) ||
-            assistants[0],
+          assistants[0],
           projectMetadata,
           isTemporaryMode // pass temporary flag
         )
@@ -470,11 +470,11 @@ export const useChat = () => {
       const settingIndex = provider.settings.findIndex(
         (s) => s.key === settingKey
       )
-      ;(
-        newSettings[settingIndex].controller_props as {
-          value: string | boolean | number
-        }
-      ).value = true
+        ; (
+          newSettings[settingIndex].controller_props as {
+            value: string | boolean | number
+          }
+        ).value = true
 
       // Create update object with updated settings
       const updateObj: Partial<ModelProvider> = {
@@ -534,17 +534,17 @@ export const useChat = () => {
       const rawContextThreshold =
         typeof modelContextLength === 'number' && modelContextLength > 0
           ? Math.floor(
-              modelContextLength *
-                (typeof autoInlineContextRatio === 'number'
-                  ? autoInlineContextRatio
-                  : 0.75)
-            )
+            modelContextLength *
+            (typeof autoInlineContextRatio === 'number'
+              ? autoInlineContextRatio
+              : 0.75)
+          )
           : undefined
 
       const contextThreshold =
         typeof rawContextThreshold === 'number' &&
-        Number.isFinite(rawContextThreshold) &&
-        rawContextThreshold > 0
+          Number.isFinite(rawContextThreshold) &&
+          rawContextThreshold > 0
           ? rawContextThreshold
           : undefined
 
@@ -618,7 +618,6 @@ export const useChat = () => {
       }
 
       let processedAttachments: Attachment[] = []
-      let hasEmbeddedDocuments = false
       try {
         const result = await processAttachmentsForSend({
           attachments: allAttachments,
@@ -632,15 +631,8 @@ export const useChat = () => {
           updateAttachmentProcessing,
         })
         processedAttachments = result.processedAttachments
-        hasEmbeddedDocuments = result.hasEmbeddedDocuments
       } catch {
         return
-      }
-
-      if (hasEmbeddedDocuments) {
-        useThreads.getState().updateThread(activeThread.id, {
-          metadata: { hasDocuments: true },
-        })
       }
 
       // All attachments prepared successfully
@@ -757,19 +749,17 @@ export const useChat = () => {
         // Filter tools based on model capabilities and available tools for this thread
         let availableTools = selectedModel?.capabilities?.includes('tools')
           ? useAppState
-              .getState()
-              .tools.filter((tool) => !isToolDisabled(tool))
+            .getState()
+            .tools.filter((tool) => !isToolDisabled(tool))
           : []
 
-        // Conditionally inject RAG if tools are supported and documents are attached
+        // Conditionally inject RAG if tools are supported and explicit commands were used
         const ragFeatureAvailable =
           useAttachments.getState().enabled &&
           PlatformFeatures[PlatformFeature.FILE_ATTACHMENTS]
-        // Check if documents were attached in the current thread
-        const hasDocuments = useThreads
-          .getState()
-          .getThreadById(activeThread.id)?.metadata?.hasDocuments
-        if (hasDocuments && ragFeatureAvailable) {
+        // Check if the message contains explicit RAG commands (indicated by [CONTEXT] block)
+        const hasExplicitRagCommands = message.includes('[CONTEXT]')
+        if (hasExplicitRagCommands && ragFeatureAvailable) {
           try {
             const ragTools = await serviceHub
               .rag()
@@ -780,7 +770,7 @@ export const useChat = () => {
                 (tool) => !isToolDisabled(tool)
               )
               availableTools = [...availableTools, ...enabledRagTools]
-              console.log('RAG tools injected for completion.')
+              console.log('RAG tools injected for completion (explicit commands detected).')
             }
           } catch (e) {
             console.warn('Failed to inject RAG tools:', e)
@@ -835,17 +825,17 @@ export const useChat = () => {
 
           const modelSettings = modelConfig?.settings
             ? Object.fromEntries(
-                Object.entries(modelConfig.settings)
-                  .filter(
-                    ([key, value]) =>
-                      key !== 'ctx_len' &&
-                      key !== 'ngl' &&
-                      value.controller_props?.value !== undefined &&
-                      value.controller_props?.value !== null &&
-                      value.controller_props?.value !== ''
-                  )
-                  .map(([key, value]) => [key, value.controller_props?.value])
-              )
+              Object.entries(modelConfig.settings)
+                .filter(
+                  ([key, value]) =>
+                    key !== 'ctx_len' &&
+                    key !== 'ngl' &&
+                    value.controller_props?.value !== undefined &&
+                    value.controller_props?.value !== null &&
+                    value.controller_props?.value !== ''
+                )
+                .map(([key, value]) => [key, value.controller_props?.value])
+            )
             : undefined
 
           const completion = await sendCompletion(

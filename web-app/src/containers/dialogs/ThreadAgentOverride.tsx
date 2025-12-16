@@ -38,9 +38,9 @@ export default function ThreadAgentOverride({
   threadId,
 }: ThreadAgentOverrideProps) {
   const defaultAgent = useDefaultAgent()
-  const { threads, updateThread } = useThreads()
+  const { getThreadById, updateThread } = useThreads()
 
-  const thread = threads.find((t) => t.id === threadId)
+  const thread = getThreadById(threadId)
   const threadAssistant = thread?.assistants?.[0]
 
   // State for instructions and parameters
@@ -163,8 +163,7 @@ export default function ThreadAgentOverride({
 
     // Update thread with overrides
     // Only set fields if they have values (empty = use defaults)
-    const updatedThread = {
-      ...thread,
+    updateThread(threadId, {
       assistants: [
         {
           id: threadAssistant?.id || 'default',
@@ -174,9 +173,7 @@ export default function ThreadAgentOverride({
           parameters: Object.keys(parameters).length > 0 ? parameters : undefined,
         },
       ],
-    }
-
-    updateThread(updatedThread)
+    })
     onOpenChange(false)
   }
 
@@ -184,8 +181,7 @@ export default function ThreadAgentOverride({
     if (!thread) return
 
     // Clear thread-specific overrides
-    const updatedThread = {
-      ...thread,
+    updateThread(threadId, {
       assistants: thread.assistants?.length
         ? [
             {
@@ -195,9 +191,7 @@ export default function ThreadAgentOverride({
             },
           ]
         : [],
-    }
-
-    updateThread(updatedThread)
+    })
 
     // Reset form to defaults
     setInstructions('')
