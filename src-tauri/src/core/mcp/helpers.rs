@@ -162,6 +162,7 @@ pub async fn run_mcp_commands<R: Runtime>(
 }
 
 /// Monitor MCP server health without removing it from the HashMap
+#[allow(dead_code)]
 pub async fn monitor_mcp_server_handle(
     servers_state: SharedMcpServers,
     name: String,

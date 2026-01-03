@@ -71,6 +71,9 @@ import {
 } from '@/hooks/useChatAttachments'
 import { useDatabaseActions, useDatabaseData } from '@/hooks/useDatabase'
 
+import { CommandRegistry, Command } from '@/lib/commands/registry'
+import { SlashCommandMenu } from '@/components/SlashCommandMenu'
+
 import {
   Attachment,
   createImageAttachment,
@@ -115,6 +118,7 @@ const ChatInput = ({
   const setPrompt = usePrompt((state) => state.setPrompt)
   const currentThreadId = useThreads((state) => state.currentThreadId)
   const { t } = useTranslation()
+  const router = useRouter()
   const spellCheckChatInput = useGeneralSetting(
     (state) => state.spellCheckChatInput
   )
@@ -196,6 +200,10 @@ const ChatInput = ({
       activeModels.some((e) => e === selectedModel?.id),
     [activeModels, selectedModel?.id]
   )
+
+  const [slashCommands, setSlashCommands] = useState<Command[]>([])
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false)
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0)
 
   // Jan Browser Extension hook
   const {
@@ -1212,6 +1220,58 @@ const ChatInput = ({
   const extensionManager = ExtensionManager.getInstance()
   const mcpExtension = extensionManager.get<MCPExtension>(ExtensionTypeEnum.MCP)
   const MCPToolComponent = mcpExtension?.getToolComponent?.()
+
+  const executeRAGSearch = useCallback(async (query: string) => {
+    if (!currentThreadId) return
+    try {
+      const result = await serviceHub.rag().callTool({
+        toolName: 'retrieve',
+        arguments: { query, thread_id: currentThreadId }
+      })
+      
+      if (!result.error && result.content) {
+         const content = result.content.map(c => c.text).join('\n')
+         if (content) {
+           const currentPrompt = usePrompt.getState().prompt
+           setPrompt(`${currentPrompt}\n\nContext:\n${content}\n\n`)
+           toast.success('Context added to prompt')
+         } else {
+           toast.info('No results found')
+         }
+      }
+    } catch (e) {
+      console.error('Search failed', e)
+      toast.error('Search failed')
+    }
+  }, [serviceHub, currentThreadId, setPrompt])
+
+  const openAgentSettings = useCallback(() => {
+    router.navigate({ to: route.settings.assistant })
+  }, [router])
+
+  const handleSlashCommand = (command: Command) => {
+    const context = {
+      prompt,
+      setPrompt,
+      openFilePicker: handleAttachDocsIngest,
+      executeRAGSearch,
+      openAgentSettings
+    }
+    
+    command.execute(context)
+    setSlashMenuOpen(false)
+    setPrompt('')
+
+    // If command requires args (like /search), selection should complete the text.
+    // If command is action (like /agent), execute immediately.    
+    if (command.trigger === '/search') {
+      setPrompt('/search ')
+      if (textareaRef.current) textareaRef.current.focus()
+    } else {
+      command.execute(context)
+      setPrompt('')
+    }
+  }
 
   const handleSendMessage = async (prompt: string) => {
     if (!selectedModel) {
@@ -3233,6 +3293,15 @@ const ChatInput = ({
         onOpenChange={setExtensionDialogOpen}
         state={extensionDialogState}
         onCancel={handleExtensionDialogCancel}
+      />
+      
+      {/* Slash Command Menu */}
+      <SlashCommandMenu
+        isOpen={slashMenuOpen}
+        commands={slashCommands}
+        selectedIndex={selectedSlashIndex}
+        onSelect={handleSlashCommand}
+        onClose={() => setSlashMenuOpen(false)}
       />
     </div>
   )
