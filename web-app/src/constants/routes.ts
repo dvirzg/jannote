@@ -1,9 +1,11 @@
 export const route = {
   // home as new chat or thread
   home: '/',
+  the_agent: '/the-agent',
   appLogs: '/logs',
   project: '/project',
   projectDetail: '/project/$projectId',
+  commands: '/commands',
   settings: {
     index: '/settings',
     model_providers: '/settings/providers',
@@ -14,6 +16,7 @@ export const route = {
     privacy: '/settings/privacy',
     shortcuts: '/settings/shortcuts',
     extensions: '/settings/extensions',
+    database: '/settings/database',
     local_api_server: '/settings/local-api-server',
     mcp_servers: '/settings/mcp-servers',
     https_proxy: '/settings/https-proxy',
@@ -27,4 +30,5 @@ export const route = {
   localApiServerlogs: '/local-api-server/logs',
   systemMonitor: '/system-monitor',
   threadsDetail: '/threads/$threadId',
+  database: '/database',
 }

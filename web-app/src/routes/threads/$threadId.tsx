@@ -11,6 +11,8 @@ import ChatInput from '@/containers/ChatInput'
 import { useShallow } from 'zustand/react/shallow'
 import { ThreadContent } from '@/containers/ThreadContent'
 import { StreamingContent } from '@/containers/StreamingContent'
+import { TotalPromptViewer } from '@/containers/TotalPromptViewer'
+import { useAppState } from '@/hooks/useAppState'
 
 import { useMessages } from '@/hooks/useMessages'
 import { useServiceHub } from '@/hooks/useServiceHub'
@@ -85,6 +87,7 @@ function ThreadDetail() {
   const setCurrentAssistant = useAssistant((state) => state.setCurrentAssistant)
   const assistants = useAssistant((state) => state.assistants)
   const setMessages = useMessages((state) => state.setMessages)
+  const debugMode = useAppState((state) => state.debugMode)
 
   const chatWidth = useInterfaceSettings((state) => state.chatWidth)
   const isSmallScreen = useSmallScreen()
@@ -143,9 +146,9 @@ function ThreadDetail() {
           const currentLocalMessages = useMessages.getState().getMessages(threadId)
 
           if (PlatformFeatures[PlatformFeature.FIRST_MESSAGE_PERSISTED_THREAD] &&
-              fetchedMessages.length === 0 &&
-              currentLocalMessages &&
-              currentLocalMessages.length > 0
+            fetchedMessages.length === 0 &&
+            currentLocalMessages &&
+            currentLocalMessages.length > 0
           ) {
             return
           }
@@ -250,47 +253,53 @@ function ThreadDetail() {
               'mx-auto flex max-w-full flex-col grow',
               // Mobile-first width constraints
               // Mobile and small screens always use full width, otherwise compact chat uses constrained width
-              isMobile || isSmallScreen || chatWidth !== 'compact'
+              isMobile || isSmallScreen || chatWidth !== 'compact' || debugMode
                 ? 'w-full'
                 : 'w-full md:w-4/6'
             )}
           >
-            {messages &&
-              messages.map((item, index) => {
-                // Only pass isLastMessage to the last message in the array
-                const isLastMessage = index === messages.length - 1
-                return (
-                  <div
-                    key={item.id}
-                    data-test-id={`message-${item.role}-${item.id}`}
-                    data-message-author-role={item.role}
-                    className="mb-4"
-                  >
-                    <ThreadContent
-                      {...item}
-                      isLastMessage={isLastMessage}
-                      showAssistant={
-                        item.role === 'assistant' &&
-                        (index === 0 ||
-                          messages[index - 1]?.role !== 'assistant' ||
-                          !(
-                            messages[index - 1]?.metadata &&
-                            'tool_calls' in (messages[index - 1].metadata ?? {})
-                          ))
-                      }
-                      index={index}
-                      updateMessage={updateMessage}
-                    />
-                  </div>
-                )
-              })}
-            <PromptProgress />
-            <StreamingContent
-              threadId={threadId}
-              data-test-id="thread-content-text"
-            />
+            {debugMode ? (
+              <TotalPromptViewer messages={messages || []} threadId={threadId} />
+            ) : (
+              <>
+                {messages &&
+                  messages.map((item, index) => {
+                    // Only pass isLastMessage to the last message in the array
+                    const isLastMessage = index === messages.length - 1
+                    return (
+                      <div
+                        key={item.id}
+                        data-test-id={`message-${item.role}-${item.id}`}
+                        data-message-author-role={item.role}
+                        className="mb-4"
+                      >
+                        <ThreadContent
+                          {...item}
+                          isLastMessage={isLastMessage}
+                          showAssistant={
+                            item.role === 'assistant' &&
+                            (index === 0 ||
+                              messages[index - 1]?.role !== 'assistant' ||
+                              !(
+                                messages[index - 1]?.metadata &&
+                                'tool_calls' in (messages[index - 1].metadata ?? {})
+                              ))
+                          }
+                          index={index}
+                          updateMessage={updateMessage}
+                        />
+                      </div>
+                    )
+                  })}
+                <PromptProgress />
+                <StreamingContent
+                  threadId={threadId}
+                  data-test-id="thread-content-text"
+                />
+              </>
+            )}
             {/* Persistent padding element for ChatGPT-style message positioning */}
-           <ThreadPadding threadId={threadId} scrollContainerRef={scrollContainerRef} />
+            <ThreadPadding threadId={threadId} scrollContainerRef={scrollContainerRef} />
           </div>
         </div>
         <div

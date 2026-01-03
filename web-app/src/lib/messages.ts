@@ -3,6 +3,7 @@ import { ChatCompletionMessageParam } from 'token.js'
 import { ChatCompletionMessageToolCall } from 'openai/resources'
 import { ThreadMessage, ContentType } from '@janhq/core'
 import { removeReasoningContent } from '@/utils/reasoning'
+import { extractDbRefsFromPrompt } from '@/lib/dbRefs'
 // Attachments are now handled upstream in newUserThreadContent
 
 type ThreadContent = NonNullable<ThreadMessage['content']>[number]
@@ -89,17 +90,26 @@ export class CompletionMessagesBuilder {
       (msg.metadata as any)?.inline_file_contents
     )
       ? ((msg.metadata as any)?.inline_file_contents as Array<{
-          name?: string
-          content?: string
-        }>).filter((f) => f?.content)
+        name?: string
+        content?: string
+      }>).filter((f) => f?.content)
       : []
 
     const buildInlineText = (base: string) => {
-      if (!inlineFileContents.length) return base
+      // Remove hidden DB_REFS block and replace @ref:key with human-readable names
+      const { refs, cleanPrompt } = extractDbRefsFromPrompt(base)
+      const refMap = new Map(refs.map((r) => [r.key, r]))
+      const withoutRefs = cleanPrompt.replace(/@ref:([A-Za-z0-9_-]+)/g, (full, key) => {
+        const r = refMap.get(key)
+        if (!r) return full
+        return r.name
+      })
+
+      if (!inlineFileContents.length) return withoutRefs
       const formatted = inlineFileContents
         .map((f) => `File: ${f.name || 'attachment'}\n${f.content ?? ''}`)
         .join('\n\n')
-      return base ? `${base}\n\n${formatted}` : formatted
+      return withoutRefs ? `${withoutRefs}\n\n${formatted}` : formatted
     }
 
     if (msg.role === 'assistant') {
@@ -119,26 +129,35 @@ export class CompletionMessagesBuilder {
 
     // User messages: handle multimodal content
     if (Array.isArray(msg.content) && msg.content.length > 1) {
-      const content = msg.content.map((part: ThreadContent) => {
-        if (part.type === ContentType.Text) {
-          return {
-            type: 'text' as const,
-            text: buildInlineText(part.text?.value ?? ''),
+      const content = msg.content
+        .map((part: ThreadContent) => {
+          if (part.type === ContentType.Text) {
+            const text = buildInlineText(part.text?.value ?? '')
+            if (!text || text.trim().length === 0) {
+              return null
+            }
+            return {
+              type: 'text' as const,
+              text,
+            }
           }
-        }
-        if (part.type === ContentType.Image) {
-          return {
-            type: 'image_url' as const,
-            image_url: {
-              url: part.image_url?.url || '',
-              detail: part.image_url?.detail || 'auto',
-            },
+          if (part.type === ContentType.Image) {
+            return {
+              type: 'image_url' as const,
+              image_url: {
+                url: part.image_url?.url || '',
+                detail: part.image_url?.detail || 'auto',
+              },
+            }
           }
-        }
-        // Fallback for unknown content types
-        return { type: 'text' as const, text: '' }
-      })
-      return { role: 'user', content } as ChatCompletionMessageParam
+          // Fallback for unknown content types
+          return null
+        })
+        .filter((part): part is NonNullable<typeof part> => part !== null)
+
+      if (content.length > 0) {
+        return { role: 'user', content } as ChatCompletionMessageParam
+      }
     }
     // Single text part
     const text = msg?.content?.[0]?.text?.value ?? '.'
@@ -172,12 +191,13 @@ export class CompletionMessagesBuilder {
     refusal?: string,
     calls?: ChatCompletionMessageToolCall[]
   ) {
+    const cleanedContent = removeReasoningContent(content)
     this.messages.push({
       role: 'assistant',
-      content: removeReasoningContent(content),
+      content: cleanedContent || null,
       refusal: refusal,
       tool_calls: calls,
-    })
+    } as any)
   }
 
   /**
@@ -190,7 +210,7 @@ export class CompletionMessagesBuilder {
 
     // Handle simple string case
     if (typeof result === 'string') {
-      content = result
+      content = result || '(No output)'
     } else {
       // Check for multimodal content (more than just a simple text string)
       const hasMultimodalContent = result.content?.some(

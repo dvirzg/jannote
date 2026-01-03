@@ -13,8 +13,6 @@ import ChangeDataFolderLocation from '@/containers/dialogs/ChangeDataFolderLocat
 import { FactoryResetDialog } from '@/containers/dialogs'
 import { useServiceHub } from '@/hooks/useServiceHub'
 import {
-  IconBrandDiscord,
-  IconBrandGithub,
   IconExternalLink,
   IconFolder,
   IconLogs,
@@ -526,65 +524,6 @@ function General() {
                   >
                     <div className="flex items-center gap-1">
                       <span>{t('settings:general.viewReleases')}</span>
-                      <IconExternalLink size={14} />
-                    </div>
-                  </a>
-                }
-              />
-            </Card>
-
-            {/* Community */}
-            <Card title={t('settings:general.community')}>
-              <CardItem
-                title={t('settings:general.github')}
-                description={t('settings:general.githubDesc')}
-                actions={
-                  <a
-                    href="https://github.com/janhq/jan"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <div className="size-6 cursor-pointer flex items-center justify-center rounded hover:bg-main-view-fg/15 bg-main-view-fg/10 transition-all duration-200 ease-in-out">
-                      <IconBrandGithub
-                        size={18}
-                        className="text-main-view-fg/50"
-                      />
-                    </div>
-                  </a>
-                }
-              />
-              <CardItem
-                title={t('settings:general.discord')}
-                description={t('settings:general.discordDesc')}
-                actions={
-                  <a
-                    href="https://discord.com/invite/FTk2MvZwJH"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <div className="size-6 cursor-pointer flex items-center justify-center rounded hover:bg-main-view-fg/15 bg-main-view-fg/10 transition-all duration-200 ease-in-out">
-                      <IconBrandDiscord
-                        size={18}
-                        className="text-main-view-fg/50"
-                      />
-                    </div>
-                  </a>
-                }
-              />
-            </Card>
-
-            {/* Support */}
-            <Card title={t('settings:general.support')}>
-              <CardItem
-                title={t('settings:general.reportAnIssue')}
-                description={t('settings:general.reportAnIssueDesc')}
-                actions={
-                  <a
-                    href="https://github.com/janhq/jan/issues/new"
-                    target="_blank"
-                  >
-                    <div className="flex items-center gap-1">
-                      <span>{t('settings:general.reportIssue')}</span>
                       <IconExternalLink size={14} />
                     </div>
                   </a>

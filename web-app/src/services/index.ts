@@ -52,6 +52,8 @@ import type { PathService } from './path/types'
 import type { CoreService } from './core/types'
 import type { DeepLinkService } from './deeplink/types'
 import type { ProjectsService } from './projects/types'
+import type { DatabaseService } from './database/types'
+import { DefaultDatabaseService } from './database/default'
 
 export interface ServiceHub {
   // Service getters - all synchronous after initialization
@@ -76,6 +78,7 @@ export interface ServiceHub {
   projects(): ProjectsService
   rag(): RAGService
   uploads(): UploadsService
+  database(): DatabaseService
 }
 
 class PlatformServiceHub implements ServiceHub {
@@ -100,6 +103,7 @@ class PlatformServiceHub implements ServiceHub {
   private projectsService: ProjectsService = new DefaultProjectsService()
   private ragService: RAGService = new DefaultRAGService()
   private uploadsService: UploadsService = new DefaultUploadsService()
+  private databaseService: DatabaseService = new DefaultDatabaseService()
   private initialized = false
 
   /**
@@ -132,6 +136,7 @@ class PlatformServiceHub implements ServiceHub {
           pathModule,
           coreModule,
           deepLinkModule,
+          databaseModule,
         ] = await Promise.all([
           import('./theme/tauri'),
           import('./window/tauri'),
@@ -146,6 +151,7 @@ class PlatformServiceHub implements ServiceHub {
           import('./path/tauri'),
           import('./core/tauri'),
           import('./deeplink/tauri'),
+          import('./database/tauri'),
         ])
 
         this.themeService = new themeModule.TauriThemeService()
@@ -161,6 +167,7 @@ class PlatformServiceHub implements ServiceHub {
         this.pathService = new pathModule.TauriPathService()
         this.coreService = new coreModule.TauriCoreService()
         this.deepLinkService = new deepLinkModule.TauriDeepLinkService()
+        this.databaseService = new databaseModule.TauriDatabaseService()
       } else if (isPlatformIOS() || isPlatformAndroid()) {
         const [
           themeModule,
@@ -199,6 +206,7 @@ class PlatformServiceHub implements ServiceHub {
         this.pathService = new pathModule.TauriPathService()
         this.coreService = new coreModule.MobileCoreService() // Mobile service with pre-loaded extensions
         this.deepLinkService = new deepLinkModule.TauriDeepLinkService()
+        this.databaseService = new DefaultDatabaseService()
       } else {
         const [
           themeModule,
@@ -237,6 +245,7 @@ class PlatformServiceHub implements ServiceHub {
         this.providersService = new providersModule.WebProvidersService()
         this.mcpService = new mcpModule.WebMCPService()
         this.projectsService = new projectsModule.WebProjectsService()
+        this.databaseService = new DefaultDatabaseService()
       }
 
       this.initialized = true
@@ -360,6 +369,11 @@ class PlatformServiceHub implements ServiceHub {
   uploads(): UploadsService {
     this.ensureInitialized()
     return this.uploadsService
+  }
+
+  database(): DatabaseService {
+    this.ensureInitialized()
+    return this.databaseService
   }
 }
 

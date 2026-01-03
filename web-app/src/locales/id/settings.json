@@ -42,8 +42,8 @@
   "reportAnIssueDesc": "Menemukan bug? Bantu kami dengan mengajukan masalah di GitHub.",
   "reportIssue": "Laporkan Masalah",
   "credits": "Kredit",
-  "creditsDesc1": "Jan dibuat dengan ❤️ oleh Tim Menlo.",
-  "creditsDesc2": "Terima kasih khusus kepada dependensi sumber terbuka kami—terutama llama.cpp dan Tauri—dan kepada komunitas AI kami yang luar biasa.",
+  "creditsDesc1": "👋 Aplikasi ini didasarkan pada Jan, yang dibuat dengan ❤️ oleh Tim Menlo Research.",
+  "creditsDesc2": "Terima kasih khusus kepada tim Jan dan dependensi sumber terbuka kami—terutama llama.cpp dan Tauri—dan kepada komunitas AI kami yang luar biasa.",
   "appVersion": "Versi Aplikasi",
   "dataFolder": {
     "appData": "Data Aplikasi",
@@ -250,8 +250,8 @@
     "reportAnIssueDesc": "Menemukan bug? Bantu kami dengan mengajukan masalah di GitHub.",
     "reportIssue": "Laporkan Masalah",
     "credits": "Kredit",
-    "creditsDesc1": "Jan dibuat dengan ❤️ oleh Tim Menlo.",
-    "creditsDesc2": "Terima kasih khusus kepada dependensi sumber terbuka kami—terutama llama.cpp dan Tauri—dan kepada komunitas AI kami yang luar biasa."
+    "creditsDesc1": "👋 Aplikasi ini didasarkan pada Jan, yang dibuat dengan ❤️ oleh Tim Menlo Research.",
+    "creditsDesc2": "Terima kasih khusus kepada tim Jan dan dependensi sumber terbuka kami—terutama llama.cpp dan Tauri—dan kepada komunitas AI kami yang luar biasa."
   },
   "extensions": {
     "title": "Ekstensi"

@@ -5,6 +5,7 @@ import {
   IconLayoutSidebar,
   IconMessage,
   IconMessageFilled,
+  IconBug,
 } from '@tabler/icons-react'
 import { ReactNode } from 'react'
 import { useRouter } from '@tanstack/react-router'
@@ -12,6 +13,7 @@ import { route } from '@/constants/routes'
 import { PlatformFeatures } from '@/lib/platform/const'
 import { PlatformFeature } from '@/lib/platform/types'
 import { TEMPORARY_CHAT_QUERY_ID } from '@/constants/chat'
+import { useAppState } from '@/hooks/useAppState'
 
 type HeaderPageProps = {
   children?: ReactNode
@@ -22,6 +24,7 @@ const HeaderPage = ({ children }: HeaderPageProps) => {
   const isSmallScreen = useSmallScreen()
   const router = useRouter()
   const currentPath = router.state.location.pathname
+  const { debugMode, setDebugMode } = useAppState()
 
   const isHomePage = currentPath === route.home
 
@@ -54,7 +57,7 @@ const HeaderPage = ({ children }: HeaderPageProps) => {
   return (
     <div
       className={cn(
-        'h-10 text-main-view-fg flex items-center shrink-0 border-b border-main-view-fg/5',
+        'h-10 text-main-view-fg flex items-center shrink-0 border-b border-main-view-fg/5 bg-main-view relative z-10',
         // Mobile-first responsive padding
         isMobile ? 'px-3' : 'px-4',
         // macOS-specific padding when panel is closed
@@ -94,9 +97,24 @@ const HeaderPage = ({ children }: HeaderPageProps) => {
           {children}
         </div>
 
-        {/* Temporary Chat Toggle - Only show on home page if feature is enabled */}
-        {PlatformFeatures[PlatformFeature.TEMPORARY_CHAT] && isHomePage && (
-          <div className="ml-auto">
+        {/* Right side actions */}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            className={cn(
+              'size-8 cursor-pointer flex items-center justify-center rounded hover:bg-main-view-fg/10 transition-all duration-200 ease-in-out relative z-20',
+              debugMode && 'bg-accent/10 text-accent hover:bg-accent/20'
+            )}
+            onClick={() => setDebugMode(!debugMode)}
+            title="Toggle Debug View"
+          >
+            <IconBug
+              size={18}
+              className={debugMode ? 'text-accent' : 'text-main-view-fg'}
+            />
+          </button>
+
+          {/* Temporary Chat Toggle - Only show on home page if feature is enabled */}
+          {PlatformFeatures[PlatformFeature.TEMPORARY_CHAT] && isHomePage && (
             <button
               className="size-8 cursor-pointer flex items-center justify-center rounded hover:bg-main-view-fg/10 transition-all duration-200 ease-in-out relative z-20"
               onClick={handleChatToggle}
@@ -112,8 +130,8 @@ const HeaderPage = ({ children }: HeaderPageProps) => {
                 <IconMessage size={18} className="text-main-view-fg" />
               )}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )

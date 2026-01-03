@@ -240,7 +240,7 @@
     }
   },
   "projects": {
-    "title": "Проекты",
+    "title": "Папки чатов",
     "addProject": "Добавить проект",
     "addToProject": "Добавить в проект",
     "removeFromProject": "Удалить из проекта",

@@ -42,14 +42,21 @@
   "reportAnIssueDesc": "Found a bug? Help us out by filing an issue on GitHub.",
   "reportIssue": "Report Issue",
   "credits": "Credits",
-  "creditsDesc1": "👋 Jan is built with ❤️ by the Menlo Research team.",
-  "creditsDesc2": "Special thanks to our open-source dependencies—especially llama.cpp and Tauri—and to our amazing AI community.",
+  "creditsDesc1": "👋 This application is based on Jan, built with ❤️ by the Menlo Research team.",
+  "creditsDesc2": "Special thanks to the Jan team and our open-source dependencies—especially llama.cpp and Tauri—and to our amazing AI community.",
   "appVersion": "App Version",
   "dataFolder": {
     "appData": "App Data",
     "appDataDesc": "Default location for messages and other user data.",
     "appLogs": "App Logs",
     "appLogsDesc": "View detailed logs of the App."
+  },
+  "database": {
+    "location": "Database Location",
+    "locationDesc": "",
+    "reveal": "Reveal Database Folder",
+    "revealError": "Failed to reveal database folder",
+    "changeLocationError": "Failed to change database location"
   },
   "others": {
     "spellCheck": "Spell Check",
@@ -258,8 +265,8 @@
     "reportAnIssueDesc": "Found a bug? Help us out by filing an issue on GitHub.",
     "reportIssue": "Report Issue",
     "credits": "Credits",
-    "creditsDesc1": "👋 Jan is built with ❤️ by the Menlo Research team.",
-    "creditsDesc2": "Special thanks to our open-source dependencies—especially llama.cpp and Tauri—and to our amazing AI community."
+    "creditsDesc1": "👋 This application is based on Jan, built with ❤️ by the Menlo Research team.",
+    "creditsDesc2": "Special thanks to the Jan team and our open-source dependencies—especially llama.cpp and Tauri—and to our amazing AI community."
   },
   "extensions": {
     "title": "Extensions"

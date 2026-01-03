@@ -11,8 +11,11 @@
 // Import Routes
 
 import { Route as rootRoute } from './routes/__root'
+import { Route as TheAgentImport } from './routes/the-agent'
 import { Route as SystemMonitorImport } from './routes/system-monitor'
 import { Route as LogsImport } from './routes/logs'
+import { Route as DatabaseImport } from './routes/database'
+import { Route as CommandsImport } from './routes/commands'
 import { Route as IndexImport } from './routes/index'
 import { Route as ProjectIndexImport } from './routes/project/index'
 import { Route as HubIndexImport } from './routes/hub/index'
@@ -26,6 +29,7 @@ import { Route as SettingsHttpsProxyImport } from './routes/settings/https-proxy
 import { Route as SettingsHardwareImport } from './routes/settings/hardware'
 import { Route as SettingsGeneralImport } from './routes/settings/general'
 import { Route as SettingsExtensionsImport } from './routes/settings/extensions'
+import { Route as SettingsDatabaseImport } from './routes/settings/database'
 import { Route as SettingsAttachmentsImport } from './routes/settings/attachments'
 import { Route as SettingsAssistantImport } from './routes/settings/assistant'
 import { Route as ProjectProjectIdImport } from './routes/project/$projectId'
@@ -37,6 +41,12 @@ import { Route as AuthGoogleCallbackImport } from './routes/auth.google.callback
 
 // Create/Update Routes
 
+const TheAgentRoute = TheAgentImport.update({
+  id: '/the-agent',
+  path: '/the-agent',
+  getParentRoute: () => rootRoute,
+} as any)
+
 const SystemMonitorRoute = SystemMonitorImport.update({
   id: '/system-monitor',
   path: '/system-monitor',
@@ -46,6 +56,18 @@ const SystemMonitorRoute = SystemMonitorImport.update({
 const LogsRoute = LogsImport.update({
   id: '/logs',
   path: '/logs',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const DatabaseRoute = DatabaseImport.update({
+  id: '/database',
+  path: '/database',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const CommandsRoute = CommandsImport.update({
+  id: '/commands',
+  path: '/commands',
   getParentRoute: () => rootRoute,
 } as any)
 
@@ -127,6 +149,12 @@ const SettingsExtensionsRoute = SettingsExtensionsImport.update({
   getParentRoute: () => rootRoute,
 } as any)
 
+const SettingsDatabaseRoute = SettingsDatabaseImport.update({
+  id: '/settings/database',
+  path: '/settings/database',
+  getParentRoute: () => rootRoute,
+} as any)
+
 const SettingsAttachmentsRoute = SettingsAttachmentsImport.update({
   id: '/settings/attachments',
   path: '/settings/attachments',
@@ -187,6 +215,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexImport
       parentRoute: typeof rootRoute
     }
+    '/commands': {
+      id: '/commands'
+      path: '/commands'
+      fullPath: '/commands'
+      preLoaderRoute: typeof CommandsImport
+      parentRoute: typeof rootRoute
+    }
+    '/database': {
+      id: '/database'
+      path: '/database'
+      fullPath: '/database'
+      preLoaderRoute: typeof DatabaseImport
+      parentRoute: typeof rootRoute
+    }
     '/logs': {
       id: '/logs'
       path: '/logs'
@@ -199,6 +241,13 @@ declare module '@tanstack/react-router' {
       path: '/system-monitor'
       fullPath: '/system-monitor'
       preLoaderRoute: typeof SystemMonitorImport
+      parentRoute: typeof rootRoute
+    }
+    '/the-agent': {
+      id: '/the-agent'
+      path: '/the-agent'
+      fullPath: '/the-agent'
+      preLoaderRoute: typeof TheAgentImport
       parentRoute: typeof rootRoute
     }
     '/hub/$modelId': {
@@ -234,6 +283,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/attachments'
       fullPath: '/settings/attachments'
       preLoaderRoute: typeof SettingsAttachmentsImport
+      parentRoute: typeof rootRoute
+    }
+    '/settings/database': {
+      id: '/settings/database'
+      path: '/settings/database'
+      fullPath: '/settings/database'
+      preLoaderRoute: typeof SettingsDatabaseImport
       parentRoute: typeof rootRoute
     }
     '/settings/extensions': {
@@ -348,13 +404,17 @@ declare module '@tanstack/react-router' {
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/commands': typeof CommandsRoute
+  '/database': typeof DatabaseRoute
   '/logs': typeof LogsRoute
   '/system-monitor': typeof SystemMonitorRoute
+  '/the-agent': typeof TheAgentRoute
   '/hub/$modelId': typeof HubModelIdRoute
   '/local-api-server/logs': typeof LocalApiServerLogsRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
   '/settings/assistant': typeof SettingsAssistantRoute
   '/settings/attachments': typeof SettingsAttachmentsRoute
+  '/settings/database': typeof SettingsDatabaseRoute
   '/settings/extensions': typeof SettingsExtensionsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/hardware': typeof SettingsHardwareRoute
@@ -374,13 +434,17 @@ export interface FileRoutesByFullPath {
 
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/commands': typeof CommandsRoute
+  '/database': typeof DatabaseRoute
   '/logs': typeof LogsRoute
   '/system-monitor': typeof SystemMonitorRoute
+  '/the-agent': typeof TheAgentRoute
   '/hub/$modelId': typeof HubModelIdRoute
   '/local-api-server/logs': typeof LocalApiServerLogsRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
   '/settings/assistant': typeof SettingsAssistantRoute
   '/settings/attachments': typeof SettingsAttachmentsRoute
+  '/settings/database': typeof SettingsDatabaseRoute
   '/settings/extensions': typeof SettingsExtensionsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/hardware': typeof SettingsHardwareRoute
@@ -401,13 +465,17 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRoute
   '/': typeof IndexRoute
+  '/commands': typeof CommandsRoute
+  '/database': typeof DatabaseRoute
   '/logs': typeof LogsRoute
   '/system-monitor': typeof SystemMonitorRoute
+  '/the-agent': typeof TheAgentRoute
   '/hub/$modelId': typeof HubModelIdRoute
   '/local-api-server/logs': typeof LocalApiServerLogsRoute
   '/project/$projectId': typeof ProjectProjectIdRoute
   '/settings/assistant': typeof SettingsAssistantRoute
   '/settings/attachments': typeof SettingsAttachmentsRoute
+  '/settings/database': typeof SettingsDatabaseRoute
   '/settings/extensions': typeof SettingsExtensionsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/hardware': typeof SettingsHardwareRoute
@@ -429,13 +497,17 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/commands'
+    | '/database'
     | '/logs'
     | '/system-monitor'
+    | '/the-agent'
     | '/hub/$modelId'
     | '/local-api-server/logs'
     | '/project/$projectId'
     | '/settings/assistant'
     | '/settings/attachments'
+    | '/settings/database'
     | '/settings/extensions'
     | '/settings/general'
     | '/settings/hardware'
@@ -454,13 +526,17 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/commands'
+    | '/database'
     | '/logs'
     | '/system-monitor'
+    | '/the-agent'
     | '/hub/$modelId'
     | '/local-api-server/logs'
     | '/project/$projectId'
     | '/settings/assistant'
     | '/settings/attachments'
+    | '/settings/database'
     | '/settings/extensions'
     | '/settings/general'
     | '/settings/hardware'
@@ -479,13 +555,17 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/commands'
+    | '/database'
     | '/logs'
     | '/system-monitor'
+    | '/the-agent'
     | '/hub/$modelId'
     | '/local-api-server/logs'
     | '/project/$projectId'
     | '/settings/assistant'
     | '/settings/attachments'
+    | '/settings/database'
     | '/settings/extensions'
     | '/settings/general'
     | '/settings/hardware'
@@ -506,13 +586,17 @@ export interface FileRouteTypes {
 
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CommandsRoute: typeof CommandsRoute
+  DatabaseRoute: typeof DatabaseRoute
   LogsRoute: typeof LogsRoute
   SystemMonitorRoute: typeof SystemMonitorRoute
+  TheAgentRoute: typeof TheAgentRoute
   HubModelIdRoute: typeof HubModelIdRoute
   LocalApiServerLogsRoute: typeof LocalApiServerLogsRoute
   ProjectProjectIdRoute: typeof ProjectProjectIdRoute
   SettingsAssistantRoute: typeof SettingsAssistantRoute
   SettingsAttachmentsRoute: typeof SettingsAttachmentsRoute
+  SettingsDatabaseRoute: typeof SettingsDatabaseRoute
   SettingsExtensionsRoute: typeof SettingsExtensionsRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsHardwareRoute: typeof SettingsHardwareRoute
@@ -532,13 +616,17 @@ export interface RootRouteChildren {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CommandsRoute: CommandsRoute,
+  DatabaseRoute: DatabaseRoute,
   LogsRoute: LogsRoute,
   SystemMonitorRoute: SystemMonitorRoute,
+  TheAgentRoute: TheAgentRoute,
   HubModelIdRoute: HubModelIdRoute,
   LocalApiServerLogsRoute: LocalApiServerLogsRoute,
   ProjectProjectIdRoute: ProjectProjectIdRoute,
   SettingsAssistantRoute: SettingsAssistantRoute,
   SettingsAttachmentsRoute: SettingsAttachmentsRoute,
+  SettingsDatabaseRoute: SettingsDatabaseRoute,
   SettingsExtensionsRoute: SettingsExtensionsRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsHardwareRoute: SettingsHardwareRoute,
@@ -567,13 +655,17 @@ export const routeTree = rootRoute
       "filePath": "__root.tsx",
       "children": [
         "/",
+        "/commands",
+        "/database",
         "/logs",
         "/system-monitor",
+        "/the-agent",
         "/hub/$modelId",
         "/local-api-server/logs",
         "/project/$projectId",
         "/settings/assistant",
         "/settings/attachments",
+        "/settings/database",
         "/settings/extensions",
         "/settings/general",
         "/settings/hardware",
@@ -594,11 +686,20 @@ export const routeTree = rootRoute
     "/": {
       "filePath": "index.tsx"
     },
+    "/commands": {
+      "filePath": "commands.tsx"
+    },
+    "/database": {
+      "filePath": "database.tsx"
+    },
     "/logs": {
       "filePath": "logs.tsx"
     },
     "/system-monitor": {
       "filePath": "system-monitor.tsx"
+    },
+    "/the-agent": {
+      "filePath": "the-agent.tsx"
     },
     "/hub/$modelId": {
       "filePath": "hub/$modelId.tsx"
@@ -614,6 +715,9 @@ export const routeTree = rootRoute
     },
     "/settings/attachments": {
       "filePath": "settings/attachments.tsx"
+    },
+    "/settings/database": {
+      "filePath": "settings/database.tsx"
     },
     "/settings/extensions": {
       "filePath": "settings/extensions.tsx"

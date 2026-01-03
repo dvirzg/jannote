@@ -30,6 +30,7 @@ type AppState = {
   promptProgress?: PromptProgress
   activeModels: string[]
   cancelToolCall?: () => void
+  debugMode: boolean
   setServerStatus: (value: 'running' | 'stopped' | 'pending') => void
   updateStreamingContent: (content: ThreadMessage | undefined) => void
   updateCurrentToolCall: (
@@ -51,6 +52,7 @@ type AppState = {
   setErrorMessage: (error: AppErrorMessage | undefined) => void
   updatePromptProgress: (progress: PromptProgress | undefined) => void
   setActiveModels: (models: string[]) => void
+  setDebugMode: (debug: boolean) => void
 }
 
 export const useAppState = create<AppState>()((set) => ({
@@ -63,6 +65,7 @@ export const useAppState = create<AppState>()((set) => ({
   currentToolCall: undefined,
   promptProgress: undefined,
   cancelToolCall: undefined,
+  debugMode: false,
   activeModels: [],
   updateStreamingContent: (content: ThreadMessage | undefined) => {
     const assistants = useAssistant.getState().assistants
@@ -74,13 +77,13 @@ export const useAppState = create<AppState>()((set) => ({
     set(() => ({
       streamingContent: content
         ? {
-            ...content,
-            created_at: content.created_at || Date.now(),
-            metadata: {
-              ...content.metadata,
-              assistant: selectedAssistant,
-            },
-          }
+          ...content,
+          created_at: content.created_at || Date.now(),
+          metadata: {
+            ...content.metadata,
+            assistant: selectedAssistant,
+          },
+        }
         : undefined,
     }))
   },
@@ -182,5 +185,8 @@ export const useAppState = create<AppState>()((set) => ({
     set(() => ({
       activeModels: models,
     }))
+  },
+  setDebugMode: (debug: boolean) => {
+    set({ debugMode: debug })
   }
 }))

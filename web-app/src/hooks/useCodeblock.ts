@@ -12,7 +12,7 @@ interface CodeBlockState {
   resetCodeBlockStyle: () => void
 }
 
-const defaultCodeBlockStyle: CodeBlockStyle = 'vsc-dark-plus'
+const defaultCodeBlockStyle: CodeBlockStyle = 'atom-dark'
 const defaultShowLineNumbers: boolean = true
 
 export const useCodeblock = create<CodeBlockState>()(
@@ -22,8 +22,9 @@ export const useCodeblock = create<CodeBlockState>()(
         codeBlockStyle: defaultCodeBlockStyle,
         showLineNumbers: defaultShowLineNumbers,
 
-        setCodeBlockStyle: (style: CodeBlockStyle) => {
-          set({ codeBlockStyle: style })
+        setCodeBlockStyle: () => {
+          // Always enforce atom-dark
+          set({ codeBlockStyle: 'atom-dark' })
         },
 
         setShowLineNumbers: (show: boolean) => {
@@ -41,6 +42,13 @@ export const useCodeblock = create<CodeBlockState>()(
     {
       name: localStorageKey.settingCodeBlock,
       storage: createJSONStorage(() => localStorage),
+      // Enforce atom-dark on rehydration
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state.codeBlockStyle = 'atom-dark'
+        }
+        return state
+      },
     }
   )
 )

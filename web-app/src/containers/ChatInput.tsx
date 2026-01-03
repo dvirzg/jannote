@@ -5,8 +5,7 @@ import { cn } from '@/lib/utils'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useThreads } from '@/hooks/useThreads'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from '@tanstack/react-router'
-import { route } from '@/constants/routes'
+import type { JSX } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -70,6 +69,7 @@ import {
   NEW_THREAD_ATTACHMENT_KEY,
   useChatAttachments,
 } from '@/hooks/useChatAttachments'
+import { useDatabaseActions, useDatabaseData } from '@/hooks/useDatabase'
 
 import { CommandRegistry, Command } from '@/lib/commands/registry'
 import { SlashCommandMenu } from '@/components/SlashCommandMenu'
@@ -81,6 +81,13 @@ import {
 } from '@/types/attachment'
 import JanBrowserExtensionDialog from '@/containers/dialogs/JanBrowserExtensionDialog'
 import { useJanBrowserExtension } from '@/hooks/useJanBrowserExtension'
+import { injectDbRefsIntoPrompt } from '@/lib/dbRefs'
+import {
+  parseUnifiedCommands,
+  resolveUnifiedCommands,
+} from '@/lib/unifiedCommands'
+import { useCommands } from '@/hooks/useCommands'
+import { expandCommandsInPrompt } from '@/lib/commands'
 
 type ChatInputProps = {
   className?: string
@@ -133,7 +140,55 @@ const ChatInput = ({
   const selectedModel = useModelProvider((state) => state.selectedModel)
   const selectedProvider = useModelProvider((state) => state.selectedProvider)
   const sendMessage = useChat()
+  const commands = useCommands((state) => state.commands)
+
+  // Built-in database search commands
+  const builtInCommands = useMemo(() => [
+    {
+      id: 'builtin-search-exact',
+      name: 'search-exact',
+      template: 'Search database for exact text matches',
+      args: [{ name: 'query' }],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    {
+      id: 'builtin-search-vector',
+      name: 'search-vector',
+      template: 'Search database using semantic/vector similarity',
+      args: [{ name: 'query' }],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+  ] as typeof commands, [])
   const [message, setMessage] = useState('')
+  const [mentionStart, setMentionStart] = useState<number | null>(null)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
+  const [commandStart, setCommandStart] = useState<number | null>(null)
+  const [commandQuery, setCommandQuery] = useState('')
+  const [commandInArgs, setCommandInArgs] = useState(false)
+  const [commandArgIndex, setCommandArgIndex] = useState(0)
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
+  const commandArgIndexRef = useRef(0)
+  const [mentionMap, setMentionMap] = useState<Record<
+    string,
+    { id: string; displayName: string; path?: string }
+  >>({})
+  // Search results autocomplete state
+  const [searchResultsVisible, setSearchResultsVisible] = useState(false)
+  const [searchResultsQuery, setSearchResultsQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<Array<{
+    id: string
+    name: string
+    displayName: string
+    path: string
+    type: 'file' | 'folder'
+  }>>([])
+  const [selectedSearchResultIndex, setSelectedSearchResultIndex] = useState(0)
+  const [searchCommandName, setSearchCommandName] = useState<'search-exact' | 'search-vector' | null>(null)
+  const [searchCommandStart, setSearchCommandStart] = useState<number | null>(null)
+  const [selectedSearchIds, setSelectedSearchIds] = useState<Set<string>>(new Set())
   const [dropdownToolsAvailable, setDropdownToolsAvailable] = useState(false)
   const [tooltipToolsAvailable, setTooltipToolsAvailable] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -190,6 +245,895 @@ const ChatInput = ({
     attachmentsKeyRef.current = attachmentsKey
   }, [attachmentsKey])
 
+  const { entries: databaseEntries } = useDatabaseData()
+  const { refresh: refreshDatabase } = useDatabaseActions()
+
+  useEffect(() => {
+    // Load database entries once to power mentions/autocomplete
+    void refreshDatabase()
+  }, [refreshDatabase])
+
+  const flattenedDatabaseEntries = useMemo(() => {
+    const out: Array<{
+      id: string
+      name: string
+      displayName: string
+      path: string
+      type: 'file' | 'folder'
+    }> = []
+    const walk = (nodes?: typeof databaseEntries) => {
+      if (!nodes) return
+      for (const node of nodes) {
+        out.push({
+          id: node.id,
+          name: node.name,
+          displayName: node.displayName ?? node.name,
+          path: node.relativePath,
+          type: node.type,
+        })
+        if (node.children?.length) {
+          walk(node.children)
+        }
+      }
+    }
+    walk(databaseEntries)
+    return out
+  }, [databaseEntries])
+
+  const dbIndex = useMemo(() => {
+    const map = new Map<string, { name: string; displayName: string; path: string }>()
+    flattenedDatabaseEntries.forEach((e) =>
+      map.set(e.id, { name: e.name, displayName: e.displayName, path: e.path })
+    )
+    return map
+  }, [flattenedDatabaseEntries])
+
+  const mentionSuggestions = useMemo(() => {
+    if (mentionStart === null || mentionQuery === undefined) return []
+    const q = mentionQuery.trim().toLowerCase()
+    const filtered = flattenedDatabaseEntries.filter((e) => {
+      if (!q) return true
+      return (
+        e.displayName.toLowerCase().includes(q) ||
+        e.name.toLowerCase().includes(q) ||
+        e.path.toLowerCase().includes(q)
+      )
+    })
+    return filtered.slice(0, 8)
+  }, [flattenedDatabaseEntries, mentionQuery, mentionStart])
+
+  const mentionVisible = mentionStart !== null
+
+  const commandVisible = commandStart !== null
+
+  // Detect if we're inside a search command's query argument
+  const detectSearchCommand = useCallback((val: string, caret: number): {
+    commandName: 'search-exact' | 'search-vector'
+    query: string
+    queryStart: number
+    queryEnd: number
+    commandStart: number
+  } | null => {
+    // Look for /search-exact("...") or /search-vector("...")
+    // Find all matches first (avoid global regex issues)
+    const matches: Array<{ index: number; commandName: 'search-exact' | 'search-vector'; openParenPos: number }> = []
+    const regex = /\/(search-exact|search-vector)\s*\(/g
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(val)) !== null) {
+      matches.push({
+        index: match.index,
+        commandName: (match[1] === 'search-exact' ? 'search-exact' : 'search-vector') as 'search-exact' | 'search-vector',
+        openParenPos: match.index + match[0].length,
+      })
+    }
+
+    let bestMatch: {
+      commandName: 'search-exact' | 'search-vector'
+      query: string
+      queryStart: number
+      queryEnd: number
+      commandStart: number
+    } | null = null
+    let bestDistance = Infinity
+
+    for (const { index: commandStart, commandName, openParenPos } of matches) {
+      // Find the query string (first quoted argument)
+      let inSingle = false
+      let inDouble = false
+      let escaping = false
+      let quoteStart: number | null = null
+      let quoteEnd: number | null = null
+      let quoteChar: string | null = null
+      let closingParenPos: number | null = null
+
+      for (let i = openParenPos; i < val.length; i++) {
+        const ch = val[i]
+        if (escaping) {
+          escaping = false
+          continue
+        }
+        if (ch === '\\') {
+          escaping = true
+          continue
+        }
+        if (ch === "'" && !inDouble) {
+          if (quoteStart === null) {
+            quoteStart = i + 1
+            quoteChar = "'"
+            inSingle = true
+          } else if (quoteChar === "'") {
+            quoteEnd = i
+            break
+          }
+        }
+        if (ch === '"' && !inSingle) {
+          if (quoteStart === null) {
+            quoteStart = i + 1
+            quoteChar = '"'
+            inDouble = true
+          } else if (quoteChar === '"') {
+            quoteEnd = i
+            break
+          }
+        }
+        if (ch === ')' && !inSingle && !inDouble) {
+          closingParenPos = i
+          // If we haven't found quotes yet, this command is done
+          if (quoteStart === null) break
+        }
+      }
+
+      // Check if caret is within this command's range
+      const commandEnd = closingParenPos ?? val.length
+      if (caret < commandStart || caret > commandEnd + 1) continue
+
+      // If we found quotes, extract the query
+      if (quoteStart !== null) {
+        const actualQuoteEnd = quoteEnd ?? (closingParenPos ? closingParenPos - 1 : val.length)
+        const query = val.slice(quoteStart, actualQuoteEnd)
+        const distance = Math.abs(caret - (quoteStart + actualQuoteEnd) / 2)
+
+        // Prefer the match closest to the caret
+        if (distance < bestDistance) {
+          bestMatch = {
+            commandName,
+            query,
+            queryStart: quoteStart,
+            queryEnd: actualQuoteEnd + 1,
+            commandStart,
+          }
+          bestDistance = distance
+        }
+      } else if (caret >= openParenPos && caret <= commandEnd) {
+        // No quotes yet, but caret is inside the parentheses - treat as empty query
+        const distance = Math.abs(caret - openParenPos)
+        if (distance < bestDistance) {
+          bestMatch = {
+            commandName,
+            query: '',
+            queryStart: openParenPos + 1,
+            queryEnd: openParenPos + 1,
+            commandStart,
+          }
+          bestDistance = distance
+        }
+      }
+    }
+
+    return bestMatch
+  }, [])
+
+  const commandSuggestions = useMemo(() => {
+    if (!commandVisible || commandInArgs) return []
+    const allCommands = [...builtInCommands, ...commands]
+    const q = commandQuery.trim().toLowerCase()
+    const filtered = q
+      ? allCommands.filter((c) => c.name.toLowerCase().startsWith(q))
+      : allCommands
+    // Keep this list intentionally small so the UI stays lightweight.
+    return [...filtered].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 10)
+  }, [commandVisible, commandInArgs, commandQuery, commands, builtInCommands])
+
+  // Perform search when user types in search command query
+  useEffect(() => {
+    if (!searchResultsVisible || !searchCommandName) {
+      setSearchResults([])
+      return
+    }
+
+    // Allow empty query to show "Type to search..." message
+    if (!searchResultsQuery.trim()) {
+      setSearchResults([])
+      return
+    }
+
+    const performSearch = async () => {
+      console.log('Performing search:', { searchCommandName, query: searchResultsQuery, visible: searchResultsVisible })
+      const db = serviceHub.database?.()
+      if (!db) {
+        console.log('No database service available')
+        setSearchResults([])
+        return
+      }
+
+      try {
+        const query = searchResultsQuery.trim()
+        let resultIds: string[]
+
+        // Get all database entry IDs to search across all entries
+        const allEntryIds = flattenedDatabaseEntries.map((e) => e.id)
+
+        if (searchCommandName === 'search-exact') {
+          if (!db.searchExact) {
+            console.log('searchExact not available')
+            setSearchResults([])
+            return
+          }
+          console.log('Calling searchExact with query:', query, 'across', allEntryIds.length, 'entries')
+          // searchExact handles empty array by searching all, but we'll pass all IDs explicitly
+          resultIds = await db.searchExact(allEntryIds.length > 0 ? allEntryIds : [], query)
+          console.log('searchExact returned IDs:', resultIds)
+        } else {
+          if (!db.searchVector) {
+            console.log('searchVector not available')
+            setSearchResults([])
+            return
+          }
+          // searchVector requires IDs, so we must pass all entry IDs
+          if (allEntryIds.length === 0) {
+            console.log('No database entries to search')
+            setSearchResults([])
+            return
+          }
+          console.log('Calling searchVector with query:', query, 'across', allEntryIds.length, 'entries')
+          resultIds = await db.searchVector(allEntryIds, query)
+          console.log('searchVector returned IDs:', resultIds)
+        }
+
+        console.log('Total database entries:', flattenedDatabaseEntries.length)
+        // Map result IDs to database entries
+        const results = resultIds
+          .map((id) => {
+            const entry = flattenedDatabaseEntries.find((e) => e.id === id)
+            return entry
+          })
+          .filter((e): e is NonNullable<typeof e> => e !== undefined)
+          .slice(0, 20) // Limit to 20 results
+
+        console.log('Mapped results:', results.length, results)
+        setSearchResults(results)
+        setSelectedSearchResultIndex(0)
+      } catch (error) {
+        console.error('Search failed', error)
+        setSearchResults([])
+      }
+    }
+
+    // Debounce search
+    const timeoutId = setTimeout(performSearch, 300)
+    return () => clearTimeout(timeoutId)
+  }, [searchResultsVisible, searchCommandName, searchResultsQuery, serviceHub, flattenedDatabaseEntries])
+
+  const formatCommandSignature = useCallback(
+    (c: { name: string; args: Array<{ name: string }> }) => {
+      const args = c.args?.length ? `(${c.args.map((a) => a.name).join(', ')})` : ''
+      return `/${c.name}${args}`
+    },
+    []
+  )
+
+  const selectedCommand = useMemo(() => {
+    if (commandInArgs) {
+      const q = commandQuery.trim().toLowerCase()
+      const allCommands = [...builtInCommands, ...commands]
+      return allCommands.find((c) => c.name.toLowerCase() === q)
+    }
+    return commandSuggestions[selectedCommandIndex] ?? null
+  }, [commandInArgs, commandQuery, commands, builtInCommands, commandSuggestions, selectedCommandIndex])
+
+  const closeCommandAutocomplete = useCallback(() => {
+    setCommandStart(null)
+    setCommandQuery('')
+    setCommandInArgs(false)
+    setCommandArgIndex(0)
+    commandArgIndexRef.current = 0
+    setSelectedCommandIndex(0)
+  }, [])
+
+  useEffect(() => {
+    commandArgIndexRef.current = commandArgIndex
+  }, [commandArgIndex])
+
+  const detectCommandContext = useCallback((val: string, caret: number) => {
+    const from = Math.min(val.length - 1, Math.max(0, caret - 1))
+    const trigger = val.lastIndexOf('/', from)
+    if (trigger < 0) return null
+
+    const prev = trigger > 0 ? val[trigger - 1] : ''
+    const next = trigger + 1 < val.length ? val[trigger + 1] : ''
+    // Guard against URLs (e.g. http://...) and comment-like patterns (//)
+    if (prev === ':' || prev === '/' || next === '/') return null
+    // Ensure slash starts a token
+    if (trigger > 0 && !/\s/.test(prev)) return null
+
+    // Parse name (allow whitespace only AFTER the name, before '(')
+    const safeCaret = Math.max(caret, trigger + 1)
+    let i = trigger + 1
+    // Allow "/" alone to open command autocomplete (empty query).
+    if (i >= val.length) {
+      return { trigger, namePart: '', inArgs: false, argIndex: 0 }
+    }
+    // If the user just typed "/" and caret isn't reliable, treat as empty query.
+    if (!/[A-Za-z]/.test(val[i])) {
+      if (safeCaret <= i) return { trigger, namePart: '', inArgs: false, argIndex: 0 }
+      return null
+    }
+    const nameStart = i
+    while (i < val.length && /[A-Za-z0-9_-]/.test(val[i])) i++
+    const name = val.slice(nameStart, i)
+
+    // If caret is still in the name typing region, behave like name autocomplete.
+    if (safeCaret <= nameStart) {
+      // "/"" typed but caret isn't reliable; treat as empty query (show all commands)
+      return { trigger, namePart: '', inArgs: false, argIndex: 0 }
+    }
+    if (safeCaret <= i) {
+      const typed = val.slice(nameStart, safeCaret)
+      if (typed.length > 0 && !/^[A-Za-z0-9_-]+$/.test(typed)) return null
+      return { trigger, namePart: typed, inArgs: false, argIndex: 0 }
+    }
+
+    // Skip whitespace between name and '(' (spaces shouldn't affect args mode)
+    let j = i
+    while (j < val.length && /\s/.test(val[j])) j++
+    const openParenPos = j < val.length && val[j] === '(' ? j : -1
+
+    if (openParenPos === -1 || openParenPos >= safeCaret) {
+      // Not inside args yet; allow name autocomplete only if there's no whitespace in the typed token.
+      const typed = val.slice(trigger + 1, safeCaret)
+      if (/\s/.test(typed)) return null
+      if (typed.length > 0 && !/^[A-Za-z0-9_-]+$/.test(typed)) return null
+      return { trigger, namePart: typed.trim(), inArgs: false, argIndex: 0 }
+    }
+
+    // We're past "name(" so we may be inside args. Determine comma positions and whether args are closed.
+    let inSingle = false
+    let inDouble = false
+    let escaping = false
+    let depth = 1
+    const commaPositions: number[] = []
+    let closeParenPos: number | null = null
+
+    for (let k = openParenPos + 1; k < val.length; k++) {
+      const ch = val[k]
+      if (escaping) {
+        escaping = false
+        continue
+      }
+      if (ch === '\\') {
+        escaping = true
+        continue
+      }
+
+      if (!inDouble && ch === "'") {
+        inSingle = !inSingle
+        continue
+      }
+      if (!inSingle && ch === '"') {
+        inDouble = !inDouble
+        continue
+      }
+      if (inSingle || inDouble) continue
+
+      if (ch === '(') {
+        depth++
+        continue
+      }
+      if (ch === ')') {
+        depth--
+        if (depth === 0) {
+          closeParenPos = k
+          break
+        }
+        continue
+      }
+      if (ch === ',' && depth === 1) {
+        commaPositions.push(k)
+      }
+    }
+
+    // Only exit args mode when a real (unquoted) ')' has been completed.
+    if (closeParenPos !== null && closeParenPos < safeCaret) return null
+
+    // Arg index is number of top-level commas before the caret (ignoring commas in quotes).
+    let argIndex = 0
+    for (const pos of commaPositions) {
+      if (pos < safeCaret) argIndex++
+      else break
+    }
+
+    return { trigger, namePart: name, inArgs: true, argIndex }
+  }, [])
+
+  const insertCommandName = useCallback(
+    (name: string) => {
+      const textarea =
+        textareaRef.current ??
+        (document.activeElement instanceof HTMLTextAreaElement
+          ? document.activeElement
+          : null)
+      if (!textarea) return
+      const value = textarea.value
+      const start = commandStart
+      if (start === null) return
+
+      const caret = textarea.selectionStart ?? value.length
+
+      // Replace the currently typed prefix (e.g. "/wea") with the selected command name.
+      const before = value.slice(0, start + 1)
+      const after = value.slice(caret)
+      const nextValue = `${before}${name}${after}`
+      setPrompt(nextValue)
+
+      // Place caret at the end of the inserted command name
+      requestAnimationFrame(() => {
+        const nextCaret = start + 1 + name.length
+        textarea.setSelectionRange(nextCaret, nextCaret)
+      })
+
+      closeCommandAutocomplete()
+    },
+    [closeCommandAutocomplete, commandStart, setPrompt]
+  )
+
+  const insertCommandInvocationStart = useCallback(
+    (c: { name: string; args: Array<{ name: string }> }) => {
+      const textarea =
+        textareaRef.current ??
+        (document.activeElement instanceof HTMLTextAreaElement
+          ? document.activeElement
+          : null)
+      if (!textarea) return
+      const value = textarea.value
+      const start = commandStart
+      if (start === null) return
+
+      const caret = textarea.selectionStart ?? value.length
+
+      const hasArgs = Boolean(c.args?.length)
+      const insertion = hasArgs ? `${c.name}(` : c.name
+
+      // Replace the currently typed prefix (e.g. "/wea") with the selected command invocation start.
+      const before = value.slice(0, start + 1)
+      const after = value.slice(caret)
+      const nextValue = `${before}${insertion}${after}`
+      setPrompt(nextValue)
+
+      // Set caret immediately so successive Tab presses work reliably.
+      const immediateCaret = start + 1 + insertion.length
+      try {
+        textarea.setSelectionRange(immediateCaret, immediateCaret)
+      } catch {
+        // ignore
+      }
+      requestAnimationFrame(() => {
+        const nextCaret = start + 1 + insertion.length
+        // Make caret movement immediate (RAF is kept as a fallback)
+        try {
+          textarea.setSelectionRange(nextCaret, nextCaret)
+        } catch {
+          // ignore
+        }
+        textarea.setSelectionRange(nextCaret, nextCaret)
+      })
+
+      if (hasArgs) {
+        // Keep the helper open and switch to "args mode"
+        setCommandStart(start)
+        setCommandQuery(c.name)
+        setCommandInArgs(true)
+        setCommandArgIndex(0)
+        commandArgIndexRef.current = 0
+        setSelectedCommandIndex(0)
+      } else {
+        closeCommandAutocomplete()
+      }
+    },
+    [closeCommandAutocomplete, commandStart, setPrompt]
+  )
+
+  const tabFillDefaultArg = useCallback(
+    (c: { name: string; args: Array<{ name: string; defaultValue?: string }> }) => {
+      const textarea =
+        textareaRef.current ??
+        (document.activeElement instanceof HTMLTextAreaElement
+          ? document.activeElement
+          : null)
+      if (!textarea) return
+
+      const value = textarea.value
+      const trigger = commandStart
+      if (trigger === null) return
+
+      // After the last arg is filled, Tab should close with ')'
+      if (commandArgIndexRef.current >= c.args.length && c.args.length > 0) {
+        const caret = textarea.selectionStart ?? value.length
+        // If there's already a real closing paren, just jump past it.
+        const open = value.indexOf('(', trigger + 1)
+        if (open >= 0) {
+          let inS = false
+          let inD = false
+          let esc = false
+          let d = 1
+          for (let k = open + 1; k < value.length; k++) {
+            const ch = value[k]
+            if (esc) {
+              esc = false
+              continue
+            }
+            if (ch === '\\') {
+              esc = true
+              continue
+            }
+            if (!inD && ch === "'") {
+              inS = !inS
+              continue
+            }
+            if (!inS && ch === '"') {
+              inD = !inD
+              continue
+            }
+            if (inS || inD) continue
+            if (ch === '(') d++
+            if (ch === ')') {
+              d--
+              if (d === 0) {
+                const pos = k + 1
+                try {
+                  textarea.setSelectionRange(pos, pos)
+                } catch {
+                  // ignore
+                }
+                closeCommandAutocomplete()
+                return
+              }
+            }
+          }
+        }
+
+        // Insert ')' at the caret (end of last arg)
+        const insertPos = caret
+        const nextValue = value.slice(0, insertPos) + ')' + value.slice(insertPos)
+        setPrompt(nextValue)
+        const nextCaret = insertPos + 1
+        try {
+          textarea.setSelectionRange(nextCaret, nextCaret)
+        } catch {
+          // ignore
+        }
+        closeCommandAutocomplete()
+        return
+      }
+
+      const caret = textarea.selectionStart ?? value.length
+      const ctx = detectCommandContext(value, caret)
+      if (!ctx || !ctx.inArgs) return
+
+      const argIndex = Math.max(
+        0,
+        Math.min(commandArgIndexRef.current, c.args.length - 1)
+      )
+
+      // Find the matching "(" for this command (allow whitespace after name)
+      const idxFromTrigger = value.indexOf('(', trigger + 1)
+      if (idxFromTrigger < 0) return
+      const openParenPos = idxFromTrigger
+
+      // Quote-aware scan for commas and a real closing paren.
+      let inSingle = false
+      let inDouble = false
+      let escaping = false
+      let depth = 1
+      const commaPositions: number[] = []
+      let closeParenPos: number | null = null
+
+      for (let k = openParenPos + 1; k < value.length; k++) {
+        const ch = value[k]
+        if (escaping) {
+          escaping = false
+          continue
+        }
+        if (ch === '\\') {
+          escaping = true
+          continue
+        }
+
+        if (!inDouble && ch === "'") {
+          inSingle = !inSingle
+          continue
+        }
+        if (!inSingle && ch === '"') {
+          inDouble = !inDouble
+          continue
+        }
+        if (inSingle || inDouble) continue
+
+        if (ch === '(') {
+          depth++
+          continue
+        }
+        if (ch === ')') {
+          depth--
+          if (depth === 0) {
+            closeParenPos = k
+            break
+          }
+          continue
+        }
+        if (ch === ',' && depth === 1) commaPositions.push(k)
+      }
+
+      const leftBoundary =
+        argIndex === 0 ? openParenPos + 1 : (commaPositions[argIndex - 1] ?? openParenPos) + 1
+      const rightBoundary =
+        commaPositions[argIndex] ??
+        closeParenPos ??
+        value.length
+
+      // Replace the entire segment (spaces don't matter)
+      let segStart = leftBoundary
+      let segEnd = rightBoundary
+      while (segStart < segEnd && /\s/.test(value[segStart])) segStart++
+      while (segEnd > segStart && /\s/.test(value[segEnd - 1])) segEnd--
+
+      const currentText = value.slice(segStart, segEnd)
+      const currentTrim = currentText.trim()
+      const def = (c.args[argIndex]?.defaultValue ?? '').trim()
+
+      let replacement: string | null = null
+      if (def) {
+        if (currentTrim.length === 0) replacement = def
+        else if (def.toLowerCase().startsWith(currentTrim.toLowerCase()))
+          replacement = def
+      }
+
+      // Apply replacement (or just advance) and ensure ", " between args
+      let nextValue = value
+      let nextCaret = segEnd
+
+      if (replacement !== null) {
+        nextValue = value.slice(0, segStart) + replacement + value.slice(segEnd)
+        nextCaret = segStart + replacement.length
+      }
+
+      const isLast = argIndex >= c.args.length - 1
+      if (!isLast) {
+        // Insert ", " if needed at the end of this arg segment (before any ')' or existing comma)
+        const afterChar = nextValue[nextCaret] ?? ''
+        // If we're currently before a ')' (or end), add comma-space. If before comma, normalize to comma-space.
+        if (afterChar === ',') {
+          // ensure exactly ", "
+          if (nextValue[nextCaret + 1] !== ' ') {
+            nextValue = nextValue.slice(0, nextCaret + 1) + ' ' + nextValue.slice(nextCaret + 1)
+          }
+          nextCaret = nextCaret + 2
+        } else if (afterChar === ')' || afterChar === '' || afterChar === '\n') {
+          nextValue = nextValue.slice(0, nextCaret) + ', ' + nextValue.slice(nextCaret)
+          nextCaret = nextCaret + 2
+        } else {
+          // If user is mid-text, move caret to next comma boundary if present; otherwise insert ", "
+          const nextComma = nextValue.indexOf(',', nextCaret)
+          const nextParen = nextValue.indexOf(')', nextCaret)
+          if (nextComma !== -1 && (nextParen === -1 || nextComma < nextParen)) {
+            nextCaret = nextComma + (nextValue[nextComma + 1] === ' ' ? 2 : 1)
+          } else {
+            nextValue = nextValue.slice(0, nextCaret) + ', ' + nextValue.slice(nextCaret)
+            nextCaret = nextCaret + 2
+          }
+        }
+      }
+
+      setPrompt(nextValue)
+
+      // Make caret movement immediate (RAF is kept as a fallback)
+      try {
+        textarea.setSelectionRange(nextCaret, nextCaret)
+      } catch {
+        // ignore
+      }
+      requestAnimationFrame(() => {
+        textarea.setSelectionRange(nextCaret, nextCaret)
+      })
+
+      if (isLast) {
+        // Don't auto-close on the same Tab that fills the last arg.
+        // The *next* Tab closes with ')'.
+        setCommandArgIndex(c.args.length)
+        commandArgIndexRef.current = c.args.length
+        setSelectedCommandIndex(0)
+        return
+      }
+
+      // Update helper highlight to the next arg after we advance
+      const nextArgIndex = argIndex + 1
+      setCommandArgIndex(nextArgIndex)
+      commandArgIndexRef.current = nextArgIndex
+      setSelectedCommandIndex(0)
+    },
+    [closeCommandAutocomplete, commandStart, detectCommandContext, setPrompt]
+  )
+
+  const findTokenRangeAt = useCallback((text: string, pos: number) => {
+    const regex = /@(db:[A-Za-z0-9_-]+|ref:[A-Za-z0-9_-]+)/g
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(text)) !== null) {
+      const start = match.index
+      const end = start + match[0].length
+      // Treat `end` as exclusive. If caret is exactly at `end`,
+      // it's already "after" the token and should not be considered inside it.
+      if (pos >= start && pos < end) {
+        return { start, end, value: match[0] }
+      }
+    }
+    return null
+  }, [])
+
+  const insertMentionToken = useCallback(
+    (id: string, label: string, path?: string) => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      const value = textarea.value
+      const selectionStart = textarea.selectionStart ?? value.length
+      const selectionEnd = textarea.selectionEnd ?? value.length
+      const start = mentionStart ?? selectionStart
+
+      // Keep @ref tokens short so chips don't add huge whitespace.
+      // Token length affects caret alignment, so we bias toward label length.
+      const desiredKeyLen = Math.max(3, Math.min(18, Math.max(3, label.length - 2)))
+      const key = Math.random().toString(36).slice(2, 2 + desiredKeyLen)
+      const token = `@ref:${key}`
+
+      setMentionMap((prev) => ({
+        ...prev,
+        [key]: { id, displayName: label, path },
+      }))
+
+      const nextValue = `${value.slice(0, start)}${token} ${value.slice(selectionEnd)}`
+      setPrompt(nextValue)
+      requestAnimationFrame(() => {
+        const pos = start + token.length + 1
+        textarea.setSelectionRange(pos, pos)
+        textarea.focus()
+      })
+      setMentionStart(null)
+      setMentionQuery('')
+      setSelectedMentionIndex(0)
+      toast.success(`Added ${label} to prompt`)
+    },
+    [mentionStart, setPrompt]
+  )
+
+  const toggleSearchResult = useCallback((resultId: string) => {
+    setSelectedSearchIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(resultId)) {
+        next.delete(resultId)
+      } else {
+        next.add(resultId)
+      }
+      return next
+    })
+  }, [])
+
+  const insertSearchResults = useCallback(() => {
+    if (selectedSearchIds.size === 0) return
+
+    const textarea = textareaRef.current
+    if (!textarea || !searchCommandStart) return
+
+    const value = textarea.value
+    const caret = textarea.selectionStart ?? value.length
+
+    // Find the search command
+    const searchCmd = detectSearchCommand(value, caret)
+    if (!searchCmd) return
+
+    // Find the end of the search command (closing paren)
+    let commandEnd = searchCmd.queryEnd
+    for (let i = searchCmd.queryEnd; i < value.length; i++) {
+      if (value[i] === ')') {
+        commandEnd = i + 1
+        break
+      }
+    }
+
+    // Get selected results and create @ref tokens for them
+    const selectedResults = searchResults.filter((r) => selectedSearchIds.has(r.id))
+    const tokens: string[] = []
+
+    selectedResults.forEach((result) => {
+      const desiredKeyLen = Math.max(3, Math.min(18, Math.max(3, result.displayName.length - 2)))
+      const key = Math.random().toString(36).slice(2, 2 + desiredKeyLen)
+      const token = `@ref:${key}`
+      tokens.push(token)
+
+      setMentionMap((prev) => ({
+        ...prev,
+        [key]: { id: result.id, displayName: result.displayName, path: result.path },
+      }))
+    })
+
+    // Insert tokens after the search command
+    const before = value.slice(0, commandEnd)
+    const after = value.slice(commandEnd)
+    const tokensStr = tokens.length > 0 ? ' ' + tokens.join(' ') + ' ' : ''
+    const nextValue = `${before}${tokensStr}${after}`
+
+    setPrompt(nextValue)
+    requestAnimationFrame(() => {
+      const newCaret = commandEnd + tokensStr.length
+      textarea.setSelectionRange(newCaret, newCaret)
+      textarea.focus()
+    })
+
+    setSearchResultsVisible(false)
+    setSelectedSearchIds(new Set())
+    setSearchResultsQuery('')
+    toast.success(`Added ${selectedSearchIds.size} result${selectedSearchIds.size > 1 ? 's' : ''} to prompt`)
+  }, [selectedSearchIds, searchCommandStart, searchResults, detectSearchCommand, setPrompt])
+
+  const handleTokenAwareBackspace = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      const value = textarea.value
+      const caret = textarea.selectionStart ?? value.length
+      if (textarea.selectionStart !== textarea.selectionEnd) return
+      const checkPos = e.key === 'Backspace' ? caret - 1 : caret
+      if (checkPos < 0) return
+      const token = findTokenRangeAt(value, checkPos)
+      if (token) {
+        e.preventDefault()
+        const nextValue = value.slice(0, token.start) + value.slice(token.end)
+        setPrompt(nextValue)
+        requestAnimationFrame(() => {
+          const pos = token.start
+          textarea.setSelectionRange(pos, pos)
+          textarea.focus()
+        })
+      }
+    },
+    [findTokenRangeAt, setPrompt]
+  )
+
+  const snapCaretOutOfToken = useCallback(
+    (bias: 'left' | 'right' | 'nearest') => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      const value = textarea.value
+      const caret = textarea.selectionStart ?? value.length
+      if (textarea.selectionStart !== textarea.selectionEnd) return
+
+      // Check both caret and caret-1 to handle boundary cases
+      const token =
+        findTokenRangeAt(value, caret) ?? findTokenRangeAt(value, caret - 1)
+      if (!token) return
+
+      const mid = token.start + Math.floor((token.end - token.start) / 2)
+      const next =
+        bias === 'left'
+          ? token.start
+          : bias === 'right'
+            ? token.end
+            : caret <= mid
+              ? token.start
+              : token.end
+
+      textarea.setSelectionRange(next, next)
+    },
+    [findTokenRangeAt]
+  )
+
   const ingestingDocs = attachments.some(
     (a) => a.type === 'document' && a.processing
   )
@@ -231,13 +1175,13 @@ const ChatInput = ({
           prev.map((att) =>
             att.name === fileName
               ? {
-                  ...att,
-                  ...updatedAttachment,
-                  processing: status === 'processing',
-                  processed: status === 'done'
-                    ? true
-                    : updatedAttachment?.processed ?? att.processed,
-                }
+                ...att,
+                ...updatedAttachment,
+                processing: status === 'processing',
+                processed: status === 'done'
+                  ? true
+                  : updatedAttachment?.processed ?? att.processed,
+              }
               : att
           )
         )
@@ -334,9 +1278,120 @@ const ChatInput = ({
       setMessage('Please select a model to start chatting.')
       return
     }
-    if (!prompt.trim()) {
+    const { expanded: promptWithCommands } = expandCommandsInPrompt(prompt, commands)
+
+    const parsedUnified = parseUnifiedCommands(promptWithCommands)
+    const db = serviceHub.database?.()
+    const resolvedUnified = await resolveUnifiedCommands(
+      parsedUnified,
+      flattenedDatabaseEntries,
+      {
+        searchExact: db?.searchExact
+          ? async (ids, query) => await db.searchExact(ids, query)
+          : undefined,
+        searchVector: db?.searchVector
+          ? async (ids, query) => await db.searchVector(ids, query)
+          : undefined,
+      }
+    )
+    if (resolvedUnified.errors.length) {
+      toast.error(resolvedUnified.errors[0])
       return
     }
+    if (resolvedUnified.warnings.length) {
+      resolvedUnified.warnings.forEach((w) => toast.warning(w))
+    }
+    const promptAfterScopes =
+      parsedUnified.cleanedPrompt.length > 0
+        ? parsedUnified.cleanedPrompt
+        : promptWithCommands
+
+    const mentionedRefKeys = Array.from(
+      new Set(
+        Array.from(promptAfterScopes.matchAll(/@ref:([A-Za-z0-9_-]+)/g))
+          .map((m) => m[1])
+          .filter(Boolean)
+      )
+    )
+    const dbRefs = mentionedRefKeys
+      .map((key) => {
+        const meta = mentionMap[key]
+        if (!meta?.id) return null
+        return {
+          key,
+          dbId: meta.id,
+          name: meta.displayName,
+          path: meta.path,
+        }
+      })
+      .filter((v): v is NonNullable<typeof v> => Boolean(v))
+
+    const contextBlock = {
+      scopes: parsedUnified.scopes.map((s) => s.raw),
+      searches: parsedUnified.searches.map((s) => s.raw),
+      limitDocs: resolvedUnified.limitDocs,
+      resolvedDocs: resolvedUnified.docIds.map((id) => {
+        const meta = dbIndex.get(id)
+        return {
+          id,
+          name: meta?.displayName ?? meta?.name,
+          path: meta?.path,
+        }
+      }),
+      warnings: resolvedUnified.warnings,
+      errors: resolvedUnified.errors,
+    }
+
+    const promptWithDbRefs = injectDbRefsIntoPrompt(
+      promptAfterScopes,
+      dbRefs,
+      contextBlock
+    )
+
+    const expandedPrompt = promptWithDbRefs.replace(/@ref:([A-Za-z0-9_-]+)/g, (full, key) => {
+      const meta = mentionMap[key]
+      return meta ? `@db:${meta.id}` : full
+    })
+
+    const { attachments: dbAttachments } = await (async () => {
+      const regex = /@db:([A-Za-z0-9_-]+)/g
+      const ids = new Set<string>(resolvedUnified.docIds)
+      let match: RegExpExecArray | null
+      while ((match = regex.exec(expandedPrompt)) !== null) {
+        if (match[1]) ids.add(match[1])
+      }
+      if (ids.size === 0) return { attachments: [] as Attachment[] }
+      try {
+        const fromDb = await serviceHub.database().toAttachments(Array.from(ids))
+        return { attachments: fromDb }
+      } catch (e) {
+        console.error('Failed to resolve database mentions', e)
+        toast.error('Failed to load database references')
+        return { attachments: [] as Attachment[] }
+      }
+    })()
+
+    const combinedAttachments = (() => {
+      const existingKeys = new Set(
+        attachments.map((a) => (a.path ? `${a.type}-${a.path}` : `${a.type}-${a.name}`))
+      )
+      const merged = [...attachments]
+      dbAttachments.forEach((att) => {
+        const key = att.path ? `${att.type}-${att.path}` : `${att.type}-${att.name}`
+        if (!existingKeys.has(key)) {
+          merged.push(att)
+          existingKeys.add(key)
+        }
+      })
+      return merged
+    })()
+
+    if (!promptWithDbRefs.trim() && combinedAttachments.length === 0) {
+      return
+    }
+    // Persist refs (human-readable chips) + hidden DB_REFS block; avoid leaking @db ids to the model.
+    const outboundMessage = promptWithDbRefs.trim()
+
     if (ingestingAny) {
       toast.info('Please wait for attachments to finish processing')
       return
@@ -345,9 +1400,9 @@ const ChatInput = ({
     setMessage('')
 
     sendMessage(
-      prompt,
+      outboundMessage,
       true,
-      attachments.length > 0 ? attachments : undefined,
+      combinedAttachments.length > 0 ? combinedAttachments : undefined,
       projectId,
       updateAttachmentProcessing
     )
@@ -451,17 +1506,17 @@ const ChatInput = ({
       const rawContextThreshold =
         typeof modelContextLength === 'number' && modelContextLength > 0
           ? Math.floor(
-              modelContextLength *
-                (typeof autoInlineContextRatio === 'number'
-                  ? autoInlineContextRatio
-                  : 0.75)
-            )
+            modelContextLength *
+            (typeof autoInlineContextRatio === 'number'
+              ? autoInlineContextRatio
+              : 0.75)
+          )
           : undefined
 
       const contextThreshold =
         typeof rawContextThreshold === 'number' &&
-        Number.isFinite(rawContextThreshold) &&
-        rawContextThreshold > 0
+          Number.isFinite(rawContextThreshold) &&
+          rawContextThreshold > 0
           ? rawContextThreshold
           : undefined
 
@@ -544,7 +1599,7 @@ const ChatInput = ({
       }
 
       try {
-        const { processedAttachments, hasEmbeddedDocuments } =
+        const { processedAttachments } =
           await processAttachmentsForSend({
             attachments: docs,
             threadId: currentThreadId,
@@ -566,12 +1621,6 @@ const ChatInput = ({
               return match ? { ...att, ...match } : att
             })
           )
-        }
-
-        if (hasEmbeddedDocuments) {
-          useThreads.getState().updateThread(currentThreadId, {
-            metadata: { hasDocuments: true },
-          })
         }
       } catch (e) {
         console.error('Failed to process attachments:', e)
@@ -1197,6 +2246,201 @@ const ChatInput = ({
             </div>
           )}
 
+          {mentionVisible && (
+            <div className="mt-2 px-4">
+              <div className="rounded-lg border border-main-view-fg/10 bg-main-view shadow-lg overflow-hidden">
+                {mentionSuggestions.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-main-view-fg/60">
+                    No database items found
+                  </div>
+                ) : (
+                  mentionSuggestions.map((s, idx) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={cn(
+                        'w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-main-view-fg/5',
+                        idx === selectedMentionIndex && 'bg-main-view-fg/5'
+                      )}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        insertMentionToken(s.id, s.displayName || s.name)
+                      }}
+                    >
+                      <div className="flex flex-col items-start">
+                        <span className="text-sm text-main-view-fg">
+                          {s.displayName || s.name}
+                        </span>
+                        <span className="text-xs text-main-view-fg/60 truncate">/ {s.path}</span>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {searchResultsVisible && (
+            <div className="mt-2 px-4">
+              <div className="rounded-lg border border-main-view-fg/10 bg-main-view shadow-lg overflow-hidden">
+                <div className="px-3 py-2 border-b border-main-view-fg/5 flex items-center justify-between">
+                  <div className="text-xs text-main-view-fg/80 font-medium">
+                    {searchCommandName === 'search-exact' ? 'Exact Search Results' : 'Vector Search Results'}
+                    {selectedSearchIds.size > 0 && (
+                      <span className="ml-2 text-main-view-fg/60">
+                        ({selectedSearchIds.size} selected)
+                      </span>
+                    )}
+                  </div>
+                  {selectedSearchIds.size > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 bg-accent text-accent-fg rounded hover:bg-accent/80"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        insertSearchResults()
+                      }}
+                    >
+                      Add Selected
+                    </button>
+                  )}
+                </div>
+                {searchResults.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-main-view-fg/60 text-center">
+                    {searchResultsQuery.trim() ? 'No results found' : 'Type to search...'}
+                  </div>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto">
+                    {searchResults.map((result, idx) => {
+                      const isSelected = selectedSearchIds.has(result.id)
+                      return (
+                        <button
+                          key={result.id}
+                          type="button"
+                          className={cn(
+                            'w-full text-left px-3 py-2 hover:bg-main-view-fg/5 flex items-center gap-2',
+                            idx === selectedSearchResultIndex && 'bg-main-view-fg/5',
+                            isSelected && 'bg-accent/10'
+                          )}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            toggleSearchResult(result.id)
+                          }}
+                        >
+                          <div className={cn(
+                            'w-4 h-4 border rounded flex items-center justify-center shrink-0',
+                            isSelected && 'bg-accent border-accent'
+                          )}>
+                            {isSelected && (
+                              <IconCheck size={12} className="text-accent-fg" />
+                            )}
+                          </div>
+                          <div className="flex flex-col items-start min-w-0 flex-1">
+                            <span className="text-sm text-main-view-fg">
+                              {result.displayName || result.name}
+                            </span>
+                            <span className="text-xs text-main-view-fg/60 truncate">/ {result.path}</span>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!mentionVisible && !searchResultsVisible && commandVisible && (
+            <div className="mt-2 px-4" data-testid="command-autocomplete">
+              <div className="rounded-lg border border-main-view-fg/10 bg-main-view shadow-lg overflow-hidden">
+                {commands.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-main-view-fg/60">
+                    No commands defined yet
+                  </div>
+                ) : commandInArgs ? (
+                  selectedCommand ? (
+                    <div className="p-3">
+                      {selectedCommand.args.length > 0 ? (
+                        <div
+                          className="text-[11px] font-mono text-main-view-fg/60"
+                          data-testid="command-args-summary"
+                        >
+                          {selectedCommand.args.map((a, idx) => {
+                            const isActive = idx === commandArgIndex
+                            const suffix =
+                              a.defaultValue !== undefined && a.defaultValue !== ''
+                                ? a.defaultValue
+                                : ''
+                            return (
+                              <span key={a.name}>
+                                <span
+                                  className={cn(
+                                    isActive && 'text-main-view-fg underline'
+                                  )}
+                                >
+                                  {a.name}:{suffix}
+                                </span>
+                                {idx < selectedCommand.args.length - 1 ? ', ' : ''}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-main-view-fg/60">
+                          No arguments
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2 text-xs text-main-view-fg/60">
+                      Unknown command: <span className="font-mono">/{commandQuery}</span>
+                    </div>
+                  )
+                ) : (
+                  <div className="max-h-56 overflow-auto">
+                    {commandSuggestions.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-main-view-fg/60">
+                        No matching commands
+                      </div>
+                    ) : (
+                      commandSuggestions.map((c, idx) => {
+                        const signature = formatCommandSignature(c)
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={cn(
+                              'w-full text-left px-3 py-2 hover:bg-main-view-fg/5',
+                              idx === selectedCommandIndex && 'bg-main-view-fg/5'
+                            )}
+                            onMouseDown={(e) => {
+                              e.preventDefault()
+                              insertCommandName(c.name)
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-sm text-main-view-fg font-mono truncate">
+                                  {signature}
+                                </div>
+                                <div className="text-xs text-main-view-fg/60 line-clamp-1">
+                                  {c.template}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-[11px] text-main-view-fg/50">
+                                Tab
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div
             className={cn(
               'relative z-20 px-0 pb-10 border border-main-view-fg/5 rounded-lg text-main-view-fg bg-main-view',
@@ -1311,101 +2555,400 @@ const ChatInput = ({
 
               </div>
             )}
-            <TextareaAutosize
-              ref={textareaRef}
-              minRows={2}
-              rows={1}
-              maxRows={10}
-              value={prompt}
-              data-testid={'chat-input'}
-              onChange={(e) => {
-                const value = e.target.value
-                setPrompt(value)
-                
-                // Slash commands
-                if (value.startsWith('/')) {
-                  const matches = CommandRegistry.getInstance().match(value)
-                  setSlashCommands(matches)
-                  setSlashMenuOpen(matches.length > 0)
-                  setSelectedSlashIndex(0)
-                } else {
-                  setSlashMenuOpen(false)
-                }
+            <div className="relative w-full">
+              <div
+                className={cn(
+                  'pointer-events-none absolute inset-0 whitespace-pre-wrap break-words px-4 pt-4 pb-2 text-sm leading-[1.4] text-main-view-fg',
+                  prompt.length === 0 && 'text-main-view-fg/60'
+                )}
+              >
+                {prompt.length === 0 ? (
+                  t('common:placeholder.chatInput')
+                ) : (
+                  (() => {
+                    const nodes: (string | JSX.Element)[] = []
+                    const regex = /@(db:[A-Za-z0-9_-]+|ref:[A-Za-z0-9_-]+)/g
+                    let lastIndex = 0
+                    let match: RegExpExecArray | null
+                    while ((match = regex.exec(prompt)) !== null) {
+                      if (match.index > lastIndex) {
+                        nodes.push(prompt.slice(lastIndex, match.index))
+                      }
+                      const full = match[1]
+                      const isRef = full.startsWith('ref:')
+                      const refKey = isRef ? full.replace(/^ref:/, '') : null
+                      const id = isRef ? mentionMap[refKey ?? '']?.id : full.replace(/^db:/, '')
 
-                // File picker trigger - simple check for now
-                if (value.slice(-1) === '@') {
-                   handleAttachDocsIngest()
-                }
+                      const metaRef = refKey ? mentionMap[refKey] : undefined
+                      const metaDb = id ? dbIndex.get(id) : undefined
+                      const label = metaRef?.displayName || metaDb?.displayName || metaDb?.name || match[0]
+                      nodes.push(
+                        <span
+                          key={`${match[0]}-${match.index}`}
+                          className="relative inline-flex align-middle"
+                        >
+                          {/* Invisible width anchor based on actual token text so caret aligns to real string */}
+                          <span className="invisible inline-flex items-center px-2 py-0.5 rounded-full border text-xs whitespace-pre">
+                            {match[0]}
+                          </span>
+                          {/* Visible chip constrained to the anchor width with ellipsis */}
+                          <span className="absolute inset-0 inline-flex items-center px-2 py-0.5 rounded-full bg-main-view-fg/10 border border-main-view-fg/20 text-xs text-main-view-fg leading-none overflow-hidden whitespace-nowrap">
+                            <span className="truncate">
+                              {label}
+                            </span>
+                          </span>
+                        </span>
+                      )
+                      lastIndex = match.index + match[0].length
+                    }
+                    if (lastIndex < prompt.length) {
+                      nodes.push(prompt.slice(lastIndex))
+                    }
+                    return nodes
+                  })()
+                )}
+              </div>
+              <TextareaAutosize
+                ref={textareaRef}
+                minRows={2}
+                rows={1}
+                maxRows={10}
+                value={prompt}
+                data-testid={'chat-input'}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setPrompt(val)
+                  const caret = e.target.selectionStart ?? val.length
 
-                // Count the number of newlines to estimate rows
-                const newRows = (value.match(/\n/g) || []).length + 1
-                setRows(Math.min(newRows, maxRows))
-              }}
-              onKeyDown={(e) => {
-                // Slash menu navigation
-                if (slashMenuOpen) {
-                  if (e.key === 'ArrowUp') {
-                    e.preventDefault()
-                    setSelectedSlashIndex((prev) => Math.max(0, prev - 1))
-                    return
+                  // Check for search command first (before mentions)
+                  const searchCmd = detectSearchCommand(val, caret)
+                  if (searchCmd) {
+                    console.log('Search command detected:', searchCmd)
+                    setSearchResultsVisible(true)
+                    setSearchCommandName(searchCmd.commandName)
+                    setSearchCommandStart(searchCmd.commandStart)
+                    setSearchResultsQuery(searchCmd.query)
+                    setMentionStart(null)
+                    setMentionQuery('')
+                    closeCommandAutocomplete()
+                  } else {
+                    if (searchResultsVisible) {
+                      console.log('Search command no longer detected')
+                    }
+                    setSearchResultsVisible(false)
+                    setSearchCommandName(null)
+                    setSearchCommandStart(null)
+                    setSearchResultsQuery('')
+                    setSelectedSearchIds(new Set())
                   }
-                  if (e.key === 'ArrowDown') {
-                    e.preventDefault()
-                    setSelectedSlashIndex((prev) => Math.min(slashCommands.length - 1, prev + 1))
-                    return
-                  }
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    handleSlashCommand(slashCommands[selectedSlashIndex])
-                    return
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault()
-                    setSlashMenuOpen(false)
-                    return
-                  }
-                }
 
-                // e.keyCode 229 is for IME input with Safari
-                const isComposing =
-                  e.nativeEvent.isComposing || e.keyCode === 229
-                if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
-                  e.preventDefault()
-                  
-                  // Check if it's a slash command execution (if user typed full command without menu)
-                  if (prompt.startsWith('/')) {
-                    const args = prompt.split(' ')
-                    const trigger = args[0]
-                    const command = CommandRegistry.getInstance().getCommands().find(c => c.trigger === trigger)
-                    if (command) {
-                      handleSlashCommand(command)
+                  const trigger = val.lastIndexOf('@', caret - 1)
+                  if (trigger >= 0) {
+                    const nextSpace = val.indexOf(' ', trigger + 1)
+                    if (nextSpace === -1 || nextSpace >= caret) {
+                      setMentionStart(trigger)
+                      setMentionQuery(val.slice(trigger + 1, caret))
+                      setSelectedMentionIndex(0)
+                    } else {
+                      setMentionStart(null)
+                      setMentionQuery('')
+                    }
+                  } else {
+                    setMentionStart(null)
+                    setMentionQuery('')
+                  }
+
+                  // Slash-command autocomplete
+                  if (trigger < 0 && !searchCmd) {
+                    const ctx = detectCommandContext(val, caret)
+                    if (ctx) {
+                      setCommandStart(ctx.trigger)
+                      setCommandQuery(ctx.namePart)
+                      setCommandInArgs(ctx.inArgs)
+                      setCommandArgIndex(ctx.argIndex)
+                      setSelectedCommandIndex(0)
+                    } else {
+                      closeCommandAutocomplete()
+                    }
+                  } else {
+                    // Don't show command autocomplete while user is typing a mention or search
+                    closeCommandAutocomplete()
+                  }
+
+                  // Count the number of newlines to estimate rows
+                  const newRows = (val.match(/\n/g) || []).length + 1
+                  setRows(Math.min(newRows, maxRows))
+                }}
+                onClick={(e) => {
+                  const target = e.target as HTMLTextAreaElement
+                  const caret = target.selectionStart ?? 0
+                  const val = target.value
+
+                  // Check for search command first
+                  const searchCmd = detectSearchCommand(val, caret)
+                  if (searchCmd) {
+                    setSearchResultsVisible(true)
+                    setSearchCommandName(searchCmd.commandName)
+                    setSearchCommandStart(searchCmd.commandStart)
+                    setSearchResultsQuery(searchCmd.query)
+                    setMentionStart(null)
+                    setMentionQuery('')
+                    closeCommandAutocomplete()
+                    return
+                  } else {
+                    setSearchResultsVisible(false)
+                    setSearchCommandName(null)
+                    setSearchCommandStart(null)
+                    setSearchResultsQuery('')
+                  }
+
+                  const trigger = val.lastIndexOf('@', caret - 1)
+                  if (trigger >= 0) {
+                    const nextSpace = val.indexOf(' ', trigger + 1)
+                    if (nextSpace === -1 || nextSpace >= caret) {
+                      setMentionStart(trigger)
+                      setMentionQuery(val.slice(trigger + 1, caret))
+                    } else {
+                      setMentionStart(null)
+                      setMentionQuery('')
+                    }
+                  } else {
+                    setMentionStart(null)
+                    setMentionQuery('')
+                  }
+
+                  // Slash-command autocomplete on click as well (caret moved)
+                  if (trigger < 0 && !searchCmd) {
+                    const ctx = detectCommandContext(val, caret)
+                    if (ctx) {
+                      setCommandStart(ctx.trigger)
+                      setCommandQuery(ctx.namePart)
+                      setCommandInArgs(ctx.inArgs)
+                      setCommandArgIndex(ctx.argIndex)
+                      setSelectedCommandIndex(0)
+                    } else {
+                      closeCommandAutocomplete()
+                    }
+                  } else {
+                    closeCommandAutocomplete()
+                  }
+
+                  // If user clicked inside a mention token, snap to edge
+                  requestAnimationFrame(() => {
+                    snapCaretOutOfToken('nearest')
+                  })
+                }}
+                onSelect={() => {
+                  // Prevent caret from sitting "inside" a token
+                  snapCaretOutOfToken('nearest')
+                }}
+                onKeyDown={(e) => {
+                  // Keep mentions atomic: jumping over tokens with arrows
+                  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                    const textarea = textareaRef.current
+                    if (textarea && textarea.selectionStart === textarea.selectionEnd) {
+                      const value = textarea.value
+                      const caret = textarea.selectionStart ?? value.length
+                      const checkPos = e.key === 'ArrowLeft' ? caret - 1 : caret
+                      const token = findTokenRangeAt(value, checkPos)
+                      if (token) {
+                        e.preventDefault()
+                        const next = e.key === 'ArrowLeft' ? token.start : token.end
+                        textarea.setSelectionRange(next, next)
+                        return
+                      }
+                    }
+                  }
+
+                  // If caret ever ends up inside token, typing should happen after it
+                  if (
+                    e.key.length === 1 &&
+                    !e.metaKey &&
+                    !e.ctrlKey &&
+                    !e.altKey
+                  ) {
+                    snapCaretOutOfToken('right')
+                  }
+
+                  // Search results navigation
+                  if (searchResultsVisible) {
+                    if (searchResults.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        setSelectedSearchResultIndex((prev) =>
+                          (prev + 1) % searchResults.length
+                        )
+                        return
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        setSelectedSearchResultIndex((prev) =>
+                          (prev - 1 + searchResults.length) % searchResults.length
+                        )
+                        return
+                      }
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      // If results are available and user has selected some, insert them
+                      if (selectedSearchIds.size > 0) {
+                        insertSearchResults()
+                        return
+                      }
+                      // If results are available but none selected, toggle the highlighted one
+                      if (searchResults.length > 0) {
+                        const choice = searchResults[selectedSearchResultIndex]
+                        if (choice) {
+                          toggleSearchResult(choice.id)
+                        }
+                        return
+                      }
+                      // If no results yet, don't send - wait for search to complete
+                      return
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setSearchResultsVisible(false)
+                      setSearchCommandName(null)
+                      setSearchResultsQuery('')
+                      setSelectedSearchIds(new Set())
                       return
                     }
                   }
 
-                  // Submit prompt when the following conditions are met:
-                  // - Enter is pressed without Shift
-                  // - The streaming content has finished
-                  // - Prompt is not empty
-                  if (!streamingContent && prompt.trim() && !ingestingAny) {
-                    handleSendMessage(prompt)
+                  // Mention navigation
+                  if (mentionStart !== null && mentionSuggestions.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setSelectedMentionIndex((prev) =>
+                        (prev + 1) % mentionSuggestions.length
+                      )
+                      return
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      setSelectedMentionIndex((prev) =>
+                        (prev - 1 + mentionSuggestions.length) % mentionSuggestions.length
+                      )
+                      return
+                    }
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      const choice = mentionSuggestions[selectedMentionIndex]
+                      if (choice) {
+                        insertMentionToken(
+                          choice.id,
+                          choice.displayName || choice.name,
+                          choice.path
+                        )
+                      }
+                      return
+                    }
+                    if (e.key === 'Escape') {
+                      setMentionStart(null)
+                      setMentionQuery('')
+                      return
+                    }
                   }
-                  // When Shift+Enter is pressed, a new line is added (default behavior)
-                }
-              }}
-              onPaste={handlePaste}
-              placeholder={t('common:placeholder.chatInput')}
-              autoFocus
-              spellCheck={spellCheckChatInput}
-              data-gramm={spellCheckChatInput}
-              data-gramm_editor={spellCheckChatInput}
-              data-gramm_grammarly={spellCheckChatInput}
-              className={cn(
-                'bg-transparent pt-4 w-full flex-shrink-0 border-none resize-none outline-0 px-4',
-                rows < maxRows && 'scrollbar-hide',
-                className
-              )}
-            />
+
+                  // Command autocomplete navigation (only when not typing a mention)
+                  if (!mentionVisible && commandVisible && !commandInArgs) {
+                    if (commandSuggestions.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        setSelectedCommandIndex((prev) =>
+                          (prev + 1) % commandSuggestions.length
+                        )
+                        return
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        setSelectedCommandIndex((prev) =>
+                          (prev - 1 + commandSuggestions.length) %
+                          commandSuggestions.length
+                        )
+                        return
+                      }
+                      if (e.key === 'Tab') {
+                        e.preventDefault()
+                        const choice = commandSuggestions[selectedCommandIndex]
+                        if (choice) insertCommandInvocationStart(choice)
+                        return
+                      }
+                      // Only hijack Enter for command selection when not composing and not sending
+                      const isComposing =
+                        e.nativeEvent.isComposing || e.keyCode === 229
+                      if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
+                        e.preventDefault()
+                        const choice = commandSuggestions[selectedCommandIndex]
+                        if (choice) insertCommandName(choice.name)
+                        return
+                      }
+                    }
+                    if (e.key === 'Escape') {
+                      closeCommandAutocomplete()
+                      return
+                    }
+                  }
+
+                  // Command args-mode Tab: fill defaults arg-by-arg
+                  if (!mentionVisible && commandVisible && commandInArgs) {
+                    if (e.key === 'Tab') {
+                      e.preventDefault()
+                      if (selectedCommand) tabFillDefaultArg(selectedCommand)
+                      return
+                    }
+                    if (e.key === 'Escape') {
+                      closeCommandAutocomplete()
+                      return
+                    }
+                  }
+
+                  if (e.key === 'Backspace' || e.key === 'Delete') {
+                    handleTokenAwareBackspace(e)
+                  }
+
+                  // e.keyCode 229 is for IME input with Safari
+                  const isComposing =
+                    e.nativeEvent.isComposing || e.keyCode === 229
+                  if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
+                    e.preventDefault()
+                    if (mentionStart !== null && mentionSuggestions.length > 0) {
+                      const choice = mentionSuggestions[selectedMentionIndex]
+                      if (choice) {
+                        insertMentionToken(
+                          choice.id,
+                          choice.displayName || choice.name,
+                          choice.path
+                        )
+                      }
+                      return
+                    }
+                    // Submit prompt when the following conditions are met:
+                    // - Enter is pressed without Shift
+                    // - The streaming content has finished
+                    // - Prompt is not empty
+                    // - Search results are not visible (user should select results first)
+                    if (!streamingContent && prompt.trim() && !ingestingAny && !searchResultsVisible) {
+                      handleSendMessage(prompt)
+                    }
+                    // When Shift+Enter is pressed, a new line is added (default behavior)
+                  }
+                }}
+                onPaste={handlePaste}
+                placeholder={t('common:placeholder.chatInput')}
+                autoFocus
+                spellCheck={spellCheckChatInput}
+                data-gramm={spellCheckChatInput}
+                data-gramm_editor={spellCheckChatInput}
+                data-gramm_grammarly={spellCheckChatInput}
+                className={cn(
+                  'bg-transparent pt-4 w-full flex-shrink-0 border-none resize-none outline-0 px-4 text-transparent caret-main-view-fg',
+                  rows < maxRows && 'scrollbar-hide',
+                  className
+                )}
+              />
+            </div>
           </div>
         </div>
 
@@ -1530,8 +3073,8 @@ const ChatInput = ({
                           {isJanBrowserMCPLoading
                             ? 'Starting...'
                             : janBrowserMCPActive
-                            ? 'Browse (Active)'
-                            : 'Browse'}
+                              ? 'Browse (Active)'
+                              : 'Browse'}
                         </p>
                       </TooltipContent>
                     </Tooltip>
@@ -1678,9 +3221,20 @@ const ChatInput = ({
                 <Button
                   variant={!prompt.trim() ? null : 'default'}
                   size="icon"
-                  disabled={!prompt.trim() || ingestingAny}
+                  disabled={!prompt.trim() || ingestingAny || searchResultsVisible}
                   data-test-id="send-message-button"
-                  onClick={() => handleSendMessage(prompt)}
+                  onClick={() => {
+                    // Prevent sending if search results are visible - user should select results first
+                    if (searchResultsVisible) {
+                      if (selectedSearchIds.size > 0) {
+                        insertSearchResults()
+                      } else {
+                        toast.info('Please select search results before sending')
+                      }
+                      return
+                    }
+                    handleSendMessage(prompt)
+                  }}
                 >
                   {streamingContent || ingestingAny ? (
                     <span className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />

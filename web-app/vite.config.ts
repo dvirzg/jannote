@@ -58,6 +58,11 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       nodePolyfills({
         include: ['path'],
+        globals: {
+          Buffer: false,
+          global: false,
+          process: false,
+        },
       }),
       injectGoogleAnalytics(env.GA_MEASUREMENT_ID),
     ],
@@ -69,6 +74,7 @@ export default defineConfig(({ mode }) => {
     },
     optimizeDeps: {
       exclude: ['@jan/extensions-web'],
+      include: ['path'],
     },
     build: {
       rollupOptions: {

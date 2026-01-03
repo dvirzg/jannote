@@ -1,10 +1,11 @@
-import { ChevronDown, ChevronUp, Loader } from 'lucide-react'
+import { ChevronDown, Loader } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { create } from 'zustand'
 import { RenderMarkdown } from '@/containers/RenderMarkdown'
 import { useMemo, useState } from 'react'
-import { twMerge } from 'tailwind-merge'
-import { useTranslation } from '@/i18n/react-i18next-compat'
+
+import { useToolApproval } from '@/hooks/useToolApproval'
+import { Button } from '@/components/ui/button'
 import ImageModal from '@/containers/dialogs/ImageModal'
 
 interface Props {
@@ -115,15 +116,16 @@ const ContentItemRenderer = ({
 
 const ToolCallBlock = ({ id, name, result, loading, args }: Props) => {
   const { collapseState, setCollapseState } = useToolCallBlockStore()
-  const { t } = useTranslation()
-  const isExpanded = collapseState[id] ?? (loading ? true : false)
+  const isExpanded = collapseState[id] ?? false // Default collapsed unless actively loading (logic below handles loading)
+  // Force expand if loading, otherwise respect user toggle or default
+  const expanded = loading ? true : isExpanded
   const [modalImage, setModalImage] = useState<{
     url: string
     alt: string
   } | null>(null)
 
   const handleClick = () => {
-    const newExpandedState = !isExpanded
+    const newExpandedState = !expanded
     setCollapseState(id, newExpandedState)
   }
 
@@ -140,98 +142,126 @@ const ToolCallBlock = ({ id, name, result, loading, args }: Props) => {
     return parseMCPResponse(result)
   }, [result])
 
-  return (
-    <div
-      className="mx-auto w-full cursor-pointer break-words"
-      data-tool-call-block={id}
-    >
-      <div className="rounded-lg bg-main-view-fg/4 border border-dashed border-main-view-fg/10">
-        <div className="flex items-center gap-3 p-2" onClick={handleClick}>
-          {loading && (
-            <div className="w-4 h-4">
-              <Loader className="size-4 animate-spin text-main-view-fg/60" />
+  const { isModalOpen, modalProps } = useToolApproval()
+  const isPendingApproval = isModalOpen && modalProps?.toolName === name && loading
+
+  if (isPendingApproval && modalProps) {
+    return (
+      <div className="w-full my-2 border border-main-view-fg/10 bg-main-view-fg/2 rounded-md transition-all">
+        <div className="p-3">
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <div className="flex items-center gap-2">
+              <div className="flex size-5 items-center justify-center rounded-full bg-orange-500/10 text-orange-500">
+                <Loader className="size-3 animate-spin" />
+              </div>
+              <span className="text-sm font-medium text-main-view-fg/90">
+                Run <code className="px-1.5 py-0.5 rounded bg-main-view-fg/5 font-mono text-xs">{name}</code>?
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => modalProps.onDeny()} className="h-7 text-xs text-main-view-fg/60 hover:text-red-500 hover:bg-red-500/10">
+                Deny
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => modalProps.onApprove(true)} className="h-7 text-xs border-main-view-fg/10 hover:bg-main-view-fg/5">
+                Allow Once
+              </Button>
+              <Button variant="default" size="sm" onClick={() => modalProps.onApprove(false)} className="h-7 text-xs">
+                Allow Always
+              </Button>
+            </div>
+          </div>
+
+          {args && (
+            <div className="rounded border border-main-view-fg/5 bg-main-view-fg/5 px-3 py-2">
+              <div className="max-h-40 overflow-auto text-xs font-mono text-main-view-fg/80">
+                <RenderMarkdown content={'```json\n' + JSON.stringify(args, null, 2) + '\n```'} />
+              </div>
             </div>
           )}
-          <button className="flex items-center gap-2 focus:outline-none">
-            {!loading && (
-              <>
-                {isExpanded ? (
-                  <>
-                    <div className="ml-1 w-4 h-4">
-                      <ChevronUp className="h-4 w-4" />
-                    </div>
-                  </>
-                ) : (
-                  <div className="ml-1 w-4 h-4">
-                    <ChevronDown className="h-4 w-4" />
-                  </div>
-                )}
-              </>
-            )}
-            <span className="font-medium text-main-view-fg/80">
-              <span className="font-medium text-main-view-fg mr-2">{name}</span>
-              <span
-                className={twMerge(
-                  'text-xs bg-main-view-fg/4 rounded-sm p-1',
-                  loading ? 'text-main-view-fg/40' : 'text-accent'
-                )}
-              >
-                {loading ? t('common:callingTool') : t('common:completed')}{' '}
-              </span>
-            </span>
-          </button>
         </div>
+      </div>
+    )
+  }
 
-        <div
-          className={cn(
-            'h-fit w-full overflow-auto transition-all duration-300 px-2',
-            isExpanded ? '' : 'max-h-0 overflow-hidden'
-          )}
-        >
-          <div className="mt-2 text-main-view-fg/60 overflow-hidden">
-            {args && Object.keys(args).length > 3 && (
-              <>
-                <p className="mb-3">Arguments:</p>
-                <RenderMarkdown
-                  isWrapping={true}
-                  content={'```json\n' + args + '\n```'}
-                />
-              </>
+  return (
+    <>
+      <div
+        className="w-full cursor-pointer break-words my-2"
+        data-tool-call-block={id}
+      >
+        <div className="rounded-md border border-main-view-fg/10 bg-transparent hover:bg-main-view-fg/5 transition-colors">
+          <div className="flex items-center gap-2 px-3 py-2 text-xs select-none" onClick={handleClick}>
+            {loading ? (
+              <Loader className="size-3 animate-spin text-accent" />
+            ) : (
+              <div className={cn("text-main-view-fg/40 transition-transform duration-200", expanded && "rotate-180")}>
+                <ChevronDown className="size-3" />
+              </div>
             )}
 
-            {result && (
-              <>
-                <p>Output:</p>
-                {hasStructuredContent ? (
-                  /* Render each content item individually based on its type */
-                  <div className="space-y-2">
-                    {contentItems.map((item, index) => (
-                      <ContentItemRenderer
-                        key={index}
-                        item={item}
-                        index={index}
-                        onImageClick={handleImageClick}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  /* Fallback: render as JSON for valid JSON but unstructured responses */
+            <span className="font-medium text-main-view-fg/70 flex-1 flex items-center gap-2">
+              Using tool <code className="bg-main-view-fg/10 px-1.5 py-0.5 rounded text-main-view-fg font-mono">{name}</code>
+            </span>
+
+            {loading ? (
+              <span className="text-accent/80 italic">Running...</span>
+            ) : (
+              <span className="text-main-view-fg/40">Completed</span>
+            )}
+          </div>
+
+          <div
+            className={cn(
+              'overflow-hidden transition-all duration-300',
+              expanded ? 'max-h-[500px] border-t border-main-view-fg/5' : 'max-h-0 border-none'
+            )}
+          >
+            <div className="p-3 text-xs font-mono bg-main-view-fg/5 overflow-x-auto">
+              {args && Object.keys(args).length > 3 && (
+                <>
+                  <p className="mb-3">Arguments:</p>
                   <RenderMarkdown
-                    content={
-                      '```json\n' +
-                      JSON.stringify(parsedResult, null, 2) +
-                      '\n```'
-                    }
+                    isWrapping={true}
+                    content={'```json\n' + JSON.stringify(args, null, 2) + '\n```'}
                   />
-                )}
-              </>
-            )}
+                </>
+              )}
+
+              {result && (
+                <>
+                  <p>Output:</p>
+                  {hasStructuredContent ? (
+                    /* Render each content item individually based on its type */
+                    <div className="space-y-2">
+                      {contentItems.map((item, index) => (
+                        <ContentItemRenderer
+                          key={index}
+                          item={item}
+                          index={index}
+                          onImageClick={handleImageClick}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    /* Fallback: render as JSON for valid JSON but unstructured responses */
+                    <RenderMarkdown
+                      content={
+                        '```json\n' +
+                        JSON.stringify(parsedResult, null, 2) +
+                        '\n```'
+                      }
+                    />
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       <ImageModal image={modalImage} onClose={closeModal} />
-    </div>
+    </>
   )
 }
 

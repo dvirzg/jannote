@@ -7,10 +7,8 @@ import { useTranslation } from '@/i18n/react-i18next-compat'
 import { PlatformGuard } from '@/lib/platform/PlatformGuard'
 import { PlatformFeature } from '@/lib/platform/types'
 
-import HeaderPage from '@/containers/HeaderPage'
 import ThreadList from '@/containers/ThreadList'
 import {
-  IconCirclePlus,
   IconPencil,
   IconTrash,
   IconFolder,
@@ -18,6 +16,7 @@ import {
   IconChevronRight,
   IconSearch,
   IconX,
+  IconPlus,
 } from '@tabler/icons-react'
 import AddProjectDialog from '@/containers/dialogs/AddProjectDialog'
 import { DeleteProjectDialog } from '@/containers/dialogs/DeleteProjectDialog'
@@ -113,23 +112,28 @@ function ProjectContent() {
   }, [folders, searchQuery])
 
   return (
-    <div className="flex h-full flex-col justify-center">
-      <HeaderPage>
-        <div className="flex items-center justify-between w-full mr-2">
-          <span>{t('projects.title')}</span>
+    <div className="flex h-full flex-col justify-center bg-main-view text-main-view-fg">
+      <div className="border-b border-main-view-fg/10 px-6 py-3 flex items-center justify-between relative z-10 bg-main-view">
+        <div className="flex items-center gap-3">
+          <IconFolder size={20} className="text-main-view-fg/70" />
+          <div className="text-base font-semibold">{t('projects.title')}</div>
+        </div>
+        <div className="flex items-center gap-2 relative z-20">
           <Button
             onClick={() => {
               setEditingKey(null)
               setOpen(true)
             }}
             size="sm"
-            className="relative z-50"
+            variant="outline"
+            className="flex items-center gap-1.5 h-8 relative z-20 pointer-events-auto"
+            type="button"
           >
-            <IconCirclePlus size={16} />
+            <IconPlus size={14} />
             {t('projects.addProject')}
           </Button>
         </div>
-      </HeaderPage>
+      </div>
       <div className="h-full overflow-y-auto flex flex-col">
         <div className="p-4 w-full md:w-3/4 mx-auto mt-2">
           {/* Search Bar */}

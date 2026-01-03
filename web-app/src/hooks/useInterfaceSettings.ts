@@ -10,7 +10,6 @@ import { supportsBlurEffects } from '@/utils/blurSupport'
 import {
   DEFAULT_THREAD_SCROLL_BEHAVIOR,
   ThreadScrollBehavior,
-  isThreadScrollBehavior,
 } from '@/constants/threadScroll'
 
 export type FontSize = '14px' | '15px' | '16px' | '18px'
@@ -403,18 +402,18 @@ export const useInterfaceSettings = create<InterfaceSettingsState>()(
           appDestructiveBgColor: defaultDestructive,
           appDestructiveTextColor: '#FFF',
           threadScrollBehavior: DEFAULT_THREAD_SCROLL_BEHAVIOR,
+          chatWidth: 'compact',
         })
       },
 
-        setThreadScrollBehavior: (value: ThreadScrollBehavior) =>
-          set({
-            threadScrollBehavior: isThreadScrollBehavior(value)
-              ? value
-              : DEFAULT_THREAD_SCROLL_BEHAVIOR,
-          }),
+        setThreadScrollBehavior: () => {
+          // Always enforce FLOW scroll behavior
+          set({ threadScrollBehavior: DEFAULT_THREAD_SCROLL_BEHAVIOR })
+        },
 
-        setChatWidth: (value: ChatWidth) => {
-          set({ chatWidth: value })
+        setChatWidth: () => {
+          // Always enforce compact chat width
+          set({ chatWidth: 'compact' })
         },
 
         setFontSize: (size: FontSize) => {
@@ -700,9 +699,10 @@ export const useInterfaceSettings = create<InterfaceSettingsState>()(
       // Apply settings when hydrating from storage
       onRehydrateStorage: () => (state) => {
         if (state) {
-          if (!isThreadScrollBehavior(state.threadScrollBehavior)) {
-            state.threadScrollBehavior = DEFAULT_THREAD_SCROLL_BEHAVIOR
-          }
+          // Always enforce FLOW scroll behavior
+          state.threadScrollBehavior = DEFAULT_THREAD_SCROLL_BEHAVIOR
+          // Always enforce compact chat width
+          state.chatWidth = 'compact'
 
           // Apply font size from storage
           document.documentElement.style.setProperty(

@@ -2,14 +2,9 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { RouterProvider, createRouter, createRootRoute, createMemoryHistory } from '@tanstack/react-router'
+import React from 'react'
+import '@testing-library/jest-dom'
 import ChatInput from '../ChatInput'
-import { usePrompt } from '@/hooks/usePrompt'
-import { useThreads } from '@/hooks/useThreads'
-import { useAppState } from '@/hooks/useAppState'
-import { useGeneralSetting } from '@/hooks/useGeneralSetting'
-import { useModelProvider } from '@/hooks/useModelProvider'
-import { useChat } from '@/hooks/useChat'
-import type { ThreadModel } from '@/types/threads'
 
 // Mock dependencies with mutable state
 let mockPromptState = {
@@ -17,11 +12,53 @@ let mockPromptState = {
   setPrompt: vi.fn(),
 }
 
+// Mock commands store (used for slash-command template expansion)
+let mockCommandsState = {
+  commands: [] as any[],
+}
+
+// Mock chat attachments store (Zustand-like API expected by ChatInput)
+const mockChatAttachmentsState: any = {
+  attachmentsByThread: {},
+  getAttachments: () => [],
+  setAttachments: vi.fn(),
+  clearAttachments: vi.fn(),
+  transferAttachments: vi.fn(),
+}
+
 vi.mock('@/hooks/usePrompt', () => ({
   usePrompt: (selector: any) => {
     return selector ? selector(mockPromptState) : mockPromptState
   },
 }))
+
+vi.mock('@/hooks/useCommands', () => ({
+  useCommands: (selector: any) => {
+    return selector ? selector(mockCommandsState) : mockCommandsState
+  },
+}))
+
+vi.mock('@/hooks/useAttachments', () => ({
+  useAttachments: (selector: any) => {
+    const state = {
+      enabled: true,
+      parseMode: 'auto',
+      maxFileSizeMB: 25,
+      autoInlineContextRatio: 0.25,
+    }
+    return selector ? selector(state) : state
+  },
+}))
+
+vi.mock('@/hooks/useChatAttachments', () => {
+  const useChatAttachments = ((selector?: any) =>
+    selector ? selector(mockChatAttachmentsState) : mockChatAttachmentsState) as any
+  useChatAttachments.getState = () => mockChatAttachmentsState
+  return {
+    NEW_THREAD_ATTACHMENT_KEY: '__new-thread__',
+    useChatAttachments,
+  }
+})
 
 vi.mock('@/hooks/useThreads', () => ({
   useThreads: (selector: any) => {
@@ -82,8 +119,9 @@ vi.mock('@/hooks/useModelProvider', () => ({
   },
 }))
 
+const mockSendMessage = vi.fn()
 vi.mock('@/hooks/useChat', () => ({
-  useChat: vi.fn(() => vi.fn()), // useChat returns sendMessage function directly
+  useChat: vi.fn(() => mockSendMessage), // useChat returns sendMessage function directly
 }))
 
 vi.mock('@/i18n/react-i18next-compat', () => ({
@@ -121,6 +159,10 @@ const mockServiceHub = {
   mcp: () => ({
     getConnectedServers: mockGetConnectedServers,
     getTools: mockGetTools,
+  }),
+  database: () => ({
+    list: vi.fn(async () => []),
+    toAttachments: vi.fn(async () => []),
   }),
   models: () => ({
     stopAllModels: mockStopAllModels,
@@ -223,9 +265,6 @@ vi.mock('@tabler/icons-react', () => ({
 }))
 
 describe('ChatInput', () => {
-  const mockSendMessage = vi.fn()
-  const mockSetPrompt = vi.fn()
-
   const createTestRouter = () => {
     const MockComponent = () => <ChatInput />
     const rootRoute = createRootRoute({
@@ -252,6 +291,9 @@ describe('ChatInput', () => {
     // Reset mock states
     mockPromptState.prompt = ''
     mockPromptState.setPrompt = vi.fn()
+    mockCommandsState.commands = []
+    mockSendMessage.mockReset()
+    mockChatAttachmentsState.attachmentsByThread = {}
 
     mockAppState.streamingContent = null
     mockAppState.abortControllers = {}
@@ -332,9 +374,81 @@ describe('ChatInput', () => {
       await user.click(sendButton)
     })
 
-    // Note: Since useChat now returns the sendMessage function directly, we need to mock it differently
-    // For now, we'll just check that the button was clicked successfully
     expect(sendButton).toBeInTheDocument()
+    await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+    expect(mockSendMessage.mock.calls[0]?.[0]).toBe('Hello world')
+  })
+
+  it('expands /command(args) into the template before sending', async () => {
+    const user = userEvent.setup()
+
+    mockCommandsState.commands = [
+      {
+        id: '1',
+        name: 'weather',
+        template: 'Tell me the weather in {place}, in {unit}',
+        args: [
+          { name: 'place', defaultValue: 'NYC' },
+          { name: 'unit', defaultValue: 'C' },
+        ],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ]
+
+    mockPromptState.prompt = 'good morning, /weather(nyc, celcius)'
+
+    await act(async () => {
+      renderWithRouter()
+    })
+
+    const sendButton = document.querySelector('[data-test-id="send-message-button"]')
+    await act(async () => {
+      await user.click(sendButton)
+    })
+
+    await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+    expect(mockSendMessage.mock.calls[0]?.[0]).toBe(
+      'good morning, Tell me the weather in nyc, in celcius'
+    )
+  })
+
+  it('strips @scope expressions and injects a context block before sending', async () => {
+    const user = userEvent.setup()
+    mockPromptState.prompt =
+      'please @scope(path="reports/**", limit_docs=2) summarize'
+
+    await act(async () => {
+      renderWithRouter()
+    })
+
+    const sendButton = document.querySelector('[data-test-id="send-message-button"]')
+    await act(async () => {
+      await user.click(sendButton)
+    })
+
+    await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+    const outbound = mockSendMessage.mock.calls[0]?.[0] as string
+    expect(outbound).not.toContain('@scope')
+    expect(outbound).toContain('[CONTEXT]')
+    expect(outbound).toContain('scopes:')
+    expect(outbound).toContain('limit_docs: 2')
+  })
+
+  it('does not send when #content is requested but content search is unavailable', async () => {
+    const user = userEvent.setup()
+    mockPromptState.prompt = '#content:"deep search"'
+
+    await act(async () => {
+      renderWithRouter()
+    })
+
+    const sendButton = document.querySelector('[data-test-id="send-message-button"]')
+    await act(async () => {
+      await user.click(sendButton)
+    })
+
+    await waitFor(() => expect(mockSendMessage).not.toHaveBeenCalled())
   })
 
   it('sends message when Enter key is pressed', async () => {
@@ -453,5 +567,121 @@ describe('ChatInput', () => {
     await act(async () => {
       expect(() => renderWithRouter()).not.toThrow()
     })
+  })
+
+  it('shows command autocomplete and argument help when typing "/"', async () => {
+    const user = userEvent.setup()
+
+    mockCommandsState.commands = [
+      {
+        id: '1',
+        name: 'weather',
+        template: 'Tell me the weather in {place}, in {unit}',
+        args: [
+          { name: 'place', defaultValue: 'NYC' },
+          { name: 'unit', defaultValue: 'C' },
+        ],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: '2',
+        name: 'summarize',
+        template: 'Summarize: {text}',
+        args: [{ name: 'text' }],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ]
+
+    // Make the mock prompt store behave like a controlled input.
+    mockPromptState.setPrompt = vi.fn((val: string) => {
+      mockPromptState.prompt = val
+    })
+
+    await act(async () => {
+      renderWithRouter()
+    })
+
+    const textarea = screen.getByTestId('chat-input')
+
+    await act(async () => {
+      await user.click(textarea)
+      await user.type(textarea, '/w')
+    })
+
+    expect(screen.getByTestId('command-autocomplete')).toBeInTheDocument()
+    // Compact list shows the command signature inline (name + args)
+    expect(screen.getByText('/weather(place, unit)')).toBeInTheDocument()
+    // Template description is shown as a subtle secondary line
+    expect(
+      screen.getByText('Tell me the weather in {place}, in {unit}')
+    ).toBeInTheDocument()
+  })
+
+  it('inserts the selected command on Tab', async () => {
+    const user = userEvent.setup()
+
+    mockCommandsState.commands = [
+      {
+        id: '1',
+        name: 'weather',
+        template: 'Tell me the weather in {place}, in {unit}',
+        args: [
+          { name: 'place', defaultValue: 'NYC' },
+          { name: 'unit', defaultValue: 'C' },
+        ],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ]
+
+    mockPromptState.setPrompt = vi.fn((val: string) => {
+      mockPromptState.prompt = val
+    })
+
+    await act(async () => {
+      renderWithRouter()
+    })
+
+    const textarea = screen.getByTestId('chat-input') as HTMLTextAreaElement
+
+    await act(async () => {
+      await user.click(textarea)
+      await user.type(textarea, '/w')
+    })
+
+    expect(screen.getByTestId('command-autocomplete')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+    })
+
+    // Tab should insert invocation start and keep the helper open in args-mode
+    expect(textarea.value).toBe('/weather(')
+    expect(screen.getByTestId('command-autocomplete')).toBeInTheDocument()
+    // Args-only helper (no function name/signature) – single inline summary
+    const summary = screen.getByTestId('command-args-summary')
+    expect(summary.textContent).toContain('place:NYC, unit:C')
+    expect(screen.queryByText('/weather(place, unit)')).not.toBeInTheDocument()
+
+    // Next Tab should fill the first arg default and advance to the next arg (inserting ", ")
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+    })
+    expect(textarea.value).toBe('/weather(NYC, ')
+
+    // Next Tab should fill the second arg default
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+    })
+    expect(textarea.value).toBe('/weather(NYC, C')
+
+    // After finishing all args, Tab should close the invocation with ")"
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Tab' })
+    })
+    expect(textarea.value).toBe('/weather(NYC, C)')
+    expect(screen.queryByTestId('command-autocomplete')).not.toBeInTheDocument()
   })
 })

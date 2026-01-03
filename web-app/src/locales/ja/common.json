@@ -237,7 +237,7 @@
     }
   },
   "projects": {
-    "title": "プロジェクト",
+    "title": "チャットフォルダ",
     "addProject": "プロジェクトを追加",
     "addToProject": "プロジェクトに追加",
     "removeFromProject": "プロジェクトから削除",

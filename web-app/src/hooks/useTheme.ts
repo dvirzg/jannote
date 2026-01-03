@@ -22,30 +22,17 @@ export type ThemeState = {
 export const useTheme = create<ThemeState>()(
   persist(
     (set) => {
-      // Initialize isDark based on OS preference if theme is auto
+      // Initialize with dark mode as default
       const initialState = {
-        activeTheme: 'auto' as AppTheme,
-        isDark: checkOSDarkMode(),
+        activeTheme: 'dark' as AppTheme,
+        isDark: true,
         setTheme: async (activeTheme: AppTheme) => {
-          if (activeTheme === 'auto') {
-            const isDarkMode = checkOSDarkMode()
-            await getServiceHub().theme().setTheme(null)
-            set(() => ({ activeTheme, isDark: isDarkMode }))
-          } else {
-            await getServiceHub()
-              .theme()
-              .setTheme(activeTheme as ThemeMode)
-            set(() => ({ activeTheme, isDark: activeTheme === 'dark' }))
-          }
+          await getServiceHub()
+            .theme()
+            .setTheme(activeTheme as ThemeMode)
+          set(() => ({ activeTheme, isDark: activeTheme === 'dark' }))
         },
         setIsDark: (isDark: boolean) => set(() => ({ isDark })),
-      }
-
-      // Check if we should initialize with dark mode
-      if (initialState.activeTheme === 'auto') {
-        initialState.isDark = checkOSDarkMode()
-      } else {
-        initialState.isDark = initialState.activeTheme === 'dark'
       }
 
       return initialState
@@ -53,6 +40,14 @@ export const useTheme = create<ThemeState>()(
     {
       name: localStorageKey.theme,
       storage: createJSONStorage(() => localStorage),
+      // Migrate 'auto' theme to 'dark' for existing users
+      onRehydrateStorage: () => (state) => {
+        if (state && (state.activeTheme === 'auto' || !state.activeTheme)) {
+          state.activeTheme = 'dark'
+          state.isDark = true
+        }
+        return state
+      },
     }
   )
 )

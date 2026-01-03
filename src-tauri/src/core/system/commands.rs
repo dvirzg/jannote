@@ -106,6 +106,32 @@ pub fn open_file_explorer(path: String) {
 }
 
 #[tauri::command]
+pub fn open_file_with_default_viewer(path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+
+    // Verify the file exists before trying to open it
+    if !path.exists() {
+        return Err(format!("File does not exist: {:?}", path));
+    }
+
+    let result = if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd")
+            .args(&["/C", "start", "", path.to_str().unwrap_or("")])
+            .status()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+            .arg(&path)
+            .status()
+    } else {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .status()
+    };
+
+    result.map(|_| ()).map_err(|e| format!("Failed to open file with default viewer: {}", e))
+}
+
+#[tauri::command]
 pub async fn read_logs<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
     let log_path = get_jan_data_folder_path(app).join("logs").join("app.log");
     if log_path.exists() {

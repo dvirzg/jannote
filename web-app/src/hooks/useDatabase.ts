@@ -1,0 +1,214 @@
+import { useCallback } from 'react'
+import { create } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
+import { toast } from 'sonner'
+import { useServiceHub } from './useServiceHub'
+import { useCreateFolderPrompt } from './useCreateFolderPrompt'
+import type {
+  DatabaseEntry,
+} from '@/services/database/types'
+
+type DatabaseState = {
+  entries: DatabaseEntry[]
+  loading: boolean
+  error?: string
+  setEntries: (entries: DatabaseEntry[]) => void
+  setLoading: (loading: boolean) => void
+  setError: (error?: string) => void
+}
+
+const useDatabaseStore = create<DatabaseState>((set) => ({
+  entries: [],
+  loading: false,
+  error: undefined,
+  setEntries: (entries) => set({ entries }),
+  setLoading: (loading) => set({ loading }),
+  setError: (error) => set({ error }),
+}))
+
+export const useDatabaseData = () => {
+  return useDatabaseStore(
+    useShallow((state) => ({
+      entries: state.entries,
+      loading: state.loading,
+      error: state.error,
+    }))
+  )
+}
+
+export const useDatabaseActions = () => {
+  const serviceHub = useServiceHub()
+  const setEntries = useDatabaseStore((state) => state.setEntries)
+  const setLoading = useDatabaseStore((state) => state.setLoading)
+  const setError = useDatabaseStore((state) => state.setError)
+
+  const refresh = useCallback(async () => {
+    try {
+      setLoading(true)
+      const list = await serviceHub.database().list()
+      setEntries(list)
+      setError(undefined)
+    } catch (e) {
+      console.error('Failed to load database entries', e)
+      setError(e instanceof Error ? e.message : String(e))
+      toast.error('Failed to load database')
+    } finally {
+      setLoading(false)
+    }
+  }, [serviceHub, setEntries, setError, setLoading])
+
+  const addPaths = useCallback(
+    async (paths: string[]) => {
+      if (!paths?.length) return
+      try {
+        setLoading(true)
+        const entries = await serviceHub.database().addPaths(paths)
+        setEntries(entries)
+      } catch (e) {
+        console.error('Failed to add to database', e)
+        toast.error('Failed to add to Database', {
+          description: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [serviceHub, setEntries, setLoading]
+  )
+
+  const updateReferenceName = useCallback(
+    async (id: string, displayName: string) => {
+      if (!id || !displayName?.trim()) return
+      try {
+        setLoading(true)
+        const entries = await serviceHub.database().updateReferenceName(id, displayName.trim())
+        setEntries(entries)
+      } catch (e) {
+        console.error('Failed to update reference name', e)
+        toast.error('Failed to update reference name', {
+          description: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [serviceHub]
+  )
+
+  const updateCategories = useCallback(
+    async (id: string, categories: string[]) => {
+      if (!id) return
+      try {
+        setLoading(true)
+        const entries = await serviceHub.database().updateCategories(id, categories)
+        setEntries(entries)
+      } catch (e) {
+        console.error('Failed to update categories', e)
+        toast.error('Failed to update categories', {
+          description: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [serviceHub]
+  )
+
+  const pickAndAddFiles = useCallback(
+    async (parentFolderId?: string) => {
+      const selection = await serviceHub.dialog().open({
+        multiple: true,
+      })
+      if (!selection) return
+      const paths = Array.isArray(selection) ? selection : [selection]
+      if (!paths.length) return
+
+      try {
+        setLoading(true)
+        const entries = await serviceHub.database().addPaths(paths, parentFolderId)
+        setEntries(entries)
+      } catch (e) {
+        console.error('Failed to add to database', e)
+        toast.error('Failed to add to Database', {
+          description: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [serviceHub, setEntries, setLoading]
+  )
+
+  const createFolder = useCallback(
+    async (parentFolderId?: string) => {
+      const prompt = useCreateFolderPrompt.getState()
+      const folderName = await prompt.showPrompt()
+      if (!folderName) return
+
+      try {
+        setLoading(true)
+        const entries = await serviceHub.database().createFolder(folderName, parentFolderId)
+        setEntries(entries)
+      } catch (e) {
+        console.error('Failed to create folder', e)
+        toast.error('Failed to create folder', {
+          description: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [serviceHub, setEntries, setLoading]
+  )
+
+  const pickAndAddFolder = useCallback(
+    async (parentFolderId?: string) => {
+      await createFolder(parentFolderId)
+    },
+    [createFolder]
+  )
+
+  const deleteById = useCallback(
+    async (id: string) => {
+      try {
+        setLoading(true)
+        await serviceHub.database().deleteById(id)
+        const remaining = await serviceHub.database().list()
+        setEntries(remaining)
+      } catch (e) {
+        console.error('Failed to delete database entry', e)
+        toast.error('Failed to delete from Database', {
+          description: e instanceof Error ? e.message : String(e),
+        })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [serviceHub, setEntries, setLoading]
+  )
+
+  const getEntryById = useCallback((id: string) => {
+    const entries = useDatabaseStore.getState().entries
+
+    const stack = [...entries]
+    while (stack.length) {
+      const current = stack.pop()
+      if (!current) continue
+      if (current.id === id) return current
+      if (current.children?.length) stack.push(...current.children)
+    }
+    return undefined
+  }, [])
+
+  return {
+    refresh,
+    addPaths,
+    pickAndAddFiles,
+    pickAndAddFolder,
+    updateReferenceName,
+    updateCategories,
+    createFolder,
+    deleteById,
+    getEntryById,
+  }
+}
